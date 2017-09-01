@@ -138,7 +138,9 @@ int fork1(char *name, int (*startFunc)(char *), char *arg,
     if (DEBUG && debugflag)
         USLOSS_Console("fork1(): creating process %s\n", name);
 
-    // test if in kernel mode; halt if in user mode
+    //TODO: test if in kernel mode; halt if in user mode
+    unsigned int psr = USLOSS_PsrGet();
+    printf("%d", psr);
 
     // Return if stack size is too small
 
