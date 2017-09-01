@@ -22,6 +22,14 @@ void launch();
 static void checkDeadlock();
 
 
+/* -------------------------- Structs ------------------------------------- */
+typedef struct readyListNode {
+    struct * readyListNode vertical;
+    struct * readyListNode next;
+    
+};
+
+
 /* -------------------------- Globals ------------------------------------- */
 
 // Patrick's debugging global variable...
@@ -57,12 +65,14 @@ void startup(int argc, char *argv[])
     if (DEBUG && debugflag)
         USLOSS_Console("startup(): initializing process table, ProcTable[]\n");
     
-    struct procStruct * procTable = malloc(sizeof(struct procStruct) * 50);
+    struct procStruct * procTable = malloc(sizeof(struct procStruct) * 50);         // procTable[50] initialized
 
     // Initialize the Ready list, etc.
     if (DEBUG && debugflag)
         USLOSS_Console("startup(): initializing the Ready list\n");
     ReadyList = NULL;
+    
+    // Ready list is a priorty
 
     // Initialize the clock interrupt handler
 
