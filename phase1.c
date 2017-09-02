@@ -20,23 +20,32 @@ extern int start1 (char *);
 void dispatcher(void);
 void launch();
 static void checkDeadlock();
-void intializeReadyList();
+void initializeProcessTable();
+void initializeReadyList();
+void pushToReadyList();
+struct procStruct * popFromReadyList();
+void initializeBlockList();
+void dumpReadyList();
 void pushToReadyList(struct procStruct *);
 struct procStruct * popFromReadyList();
 
 
 /* -------------------------- Structs ------------------------------------- */
-typedef struct readyListNode {
-    struct readyListNode * next;
+typedef struct listNode {
+    struct listNode * next;
     struct procStruct * process;
-} readyListNode;
+} listNode;
 
 
 
 /* -------------------------- Globals ------------------------------------- */
+// Indexes for block list
+struct listNode * blockListHead;
+struct listNode * blockListTail;
+
 // Indexes in ReadyList
-struct readyListNode readyList[6] ;
-struct readyListNode * priorityEndPtrs[6];
+struct listNode readyList[6] ;
+struct listNode * priorityEndPtrs[6];
 
 // Patrick's debugging global variable...
 int debugflag = 1;
@@ -70,16 +79,15 @@ void startup(int argc, char *argv[])
     /* initialize the process table */
     if (DEBUG && debugflag)
         USLOSS_Console("startup(): initializing process table, ProcTable[]\n");
+    initializeProcessTable();
     
-    
-    // Initialize the Ready list, etc.
+    // Initialize the Ready list, initialize block list.
     if (DEBUG && debugflag)
-        USLOSS_Console("startup(): initializing the Ready list\n");
-    ReadyList = NULL;
-    
-    intializeReadyList();
+        USLOSS_Console("startup(): initializing the Ready list, initializing the block list\n");
+    initializeReadyList();
+    initializeBlockList();
 
-    // Initialize the clock interrupt handler
+    // Initialize the clock interrupt handler, etc. (Other required interupts)
 
     // startup a sentinel process
     if (DEBUG && debugflag)
@@ -111,6 +119,33 @@ void startup(int argc, char *argv[])
 } /* startup */
 
 /* ------------------------------------------------------------------------
+ Name - initializeProcessTable
+ Purpose - Sets all procStrucs in ProcessTable to have no status (unassigned)
+ Parameters - none
+ Returns - nothing
+ Side Effects - none
+ ----------------------------------------------------------------------- */
+void initializeProcessTable() {
+    for (int i = 0; i < MAXPROC; i++) {
+        procTable[i].status = NO_PROCESS_ASSIGNED;
+    }
+} /* initializeProcessTable */
+
+/* ------------------------------------------------------------------------
+ Name - initializeBlockList
+ Purpose - Creates the block list as an empty linked list.
+ Parameters - none
+ Returns - nothing
+ Side Effects - none
+ ----------------------------------------------------------------------- */
+void initializeBlockList() {
+    
+    blockListHead = malloc(sizeof(listNode));
+    blockListTail = malloc(sizeof(listNode));
+    blockListHead->next = blockListTail;
+} /* initializeBlockList */
+
+/* ------------------------------------------------------------------------
  Name - initializeReadyList
  Purpose - Builds the ready list. Assigns each pointer marking the end of a
     priority's list to the beginning of that list (all priorities are empty).
@@ -119,19 +154,27 @@ void startup(int argc, char *argv[])
  Side Effects - none
  ----------------------------------------------------------------------- */
 void initializeReadyList() {
+    
     for (int i = 0; i < 6; i++) {
-        priorityEndPtrs[i] = &readyList[i];                 // Each endPtr points to the beginning of it's list
-        readyList[i].next = NULL;
+        priorityEndPtrs[i] = malloc(sizeof(listNode));                 // Each endPtr points to the beginning of it's list
+        readyList[i].next = priorityEndPtrs[i];
     }
-}
+} /* initializeReadyList */
 
 /* ------------------------------------------------------------------------
- Name - dumpReadyList
- Purpose - Outputs the contents of all 
+ Name - dumpProcessTable
+ Purpose - Outputs the contents of all entries in processTable
  Parameters - none
  Returns - nothing
  Side Effects - none
  ----------------------------------------------------------------------- */
+void dumpProcessTable() {
+    printf("%5s %20s %20s %20s %20s\n", "Name", "PID", "Status", "Priority", "State");
+    printf("------------------------------------------------------------------------------------------\n");
+    for (int i = 0; i < MAXPROC; i++) {
+        printf("%5s%20hi%20d%20d%20s\n", procTable->name, procTable->pid, procTable->status, procTable->priority, procTable->state);
+    }
+}
 
 /* ------------------------------------------------------------------------
  Name - pushToReadyList
@@ -141,7 +184,7 @@ void initializeReadyList() {
  Side Effects - none
  ----------------------------------------------------------------------- */
 void pushToReadyList(struct procStruct * newProcess) {
-    struct readyListNode * newNode = malloc(sizeof(readyListNode));          // Create a new node to insert into the readyList.
+    struct listNode * newNode = malloc(sizeof(listNode));          // Create a new node to insert into the readyList.
     newNode->process = newProcess;
     
     for (int i = 0; i < 6; i++) {
@@ -158,7 +201,7 @@ void pushToReadyList(struct procStruct * newProcess) {
             }
         }
     }
-}
+} /* pushToReadyList */
 
 /* ------------------------------------------------------------------------
  Name - popFromReadyList
@@ -168,10 +211,10 @@ void pushToReadyList(struct procStruct * newProcess) {
  Side Effects - none
  ----------------------------------------------------------------------- */
 struct procStruct * popFromReadyList() {
-    readyListNode * current = &readyList[0];
-    
-    
-}
+    listNode * current = &readyList[0];
+    // FIXME!
+    return current->process;
+} /* popFromReadyList */
 
 /* ------------------------------------------------------------------------
    Name - finish
