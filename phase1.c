@@ -20,23 +20,29 @@ extern int start1 (char *);
 void dispatcher(void);
 void launch();
 static void checkDeadlock();
+void intializeReadyList();
+void pushToReadyList(struct procStruct *);
+struct procStruct * popFromReadyList();
 
 
 /* -------------------------- Structs ------------------------------------- */
 typedef struct readyListNode {
-    struct * readyListNode vertical;
-    struct * readyListNode next;
-    
-};
+    struct readyListNode * next;
+    struct procStruct * process;
+} readyListNode;
+
 
 
 /* -------------------------- Globals ------------------------------------- */
+// Indexes in ReadyList
+struct readyListNode readyList[6] ;
+struct readyListNode * priorityEndPtrs[6];
 
 // Patrick's debugging global variable...
 int debugflag = 1;
 
 // the process table
-procStruct ProcTable[MAXPROC];
+procStruct procTable[MAXPROC];
 
 // Process lists
 static procPtr ReadyList;
@@ -65,14 +71,13 @@ void startup(int argc, char *argv[])
     if (DEBUG && debugflag)
         USLOSS_Console("startup(): initializing process table, ProcTable[]\n");
     
-    struct procStruct * procTable = malloc(sizeof(struct procStruct) * 50);         // procTable[50] initialized
-
+    
     // Initialize the Ready list, etc.
     if (DEBUG && debugflag)
         USLOSS_Console("startup(): initializing the Ready list\n");
     ReadyList = NULL;
     
-    // Ready list is a priorty
+    intializeReadyList();
 
     // Initialize the clock interrupt handler
 
@@ -104,6 +109,69 @@ void startup(int argc, char *argv[])
 
     return;
 } /* startup */
+
+/* ------------------------------------------------------------------------
+ Name - initializeReadyList
+ Purpose - Builds the ready list. Assigns each pointer marking the end of a
+    priority's list to the beginning of that list (all priorities are empty).
+ Parameters - none
+ Returns - nothing
+ Side Effects - none
+ ----------------------------------------------------------------------- */
+void initializeReadyList() {
+    for (int i = 0; i < 6; i++) {
+        priorityEndPtrs[i] = &readyList[i];                 // Each endPtr points to the beginning of it's list
+        readyList[i].next = NULL;
+    }
+}
+
+/* ------------------------------------------------------------------------
+ Name - dumpReadyList
+ Purpose - Outputs the contents of all 
+ Parameters - none
+ Returns - nothing
+ Side Effects - none
+ ----------------------------------------------------------------------- */
+
+/* ------------------------------------------------------------------------
+ Name - pushToReadyList
+ Purpose - Adds a process to the readyList
+ Parameters - Pointer to process to be added
+ Returns - nothing
+ Side Effects - none
+ ----------------------------------------------------------------------- */
+void pushToReadyList(struct procStruct * newProcess) {
+    struct readyListNode * newNode = malloc(sizeof(readyListNode));          // Create a new node to insert into the readyList.
+    newNode->process = newProcess;
+    
+    for (int i = 0; i < 6; i++) {
+        if (newProcess->priority == i) {
+            // If the queue at priority i is empty...
+            if (&readyList[i] == priorityEndPtrs[i]) {
+                readyList[i].next = newNode;
+                priorityEndPtrs[i] = newNode;
+            }
+            // If the queue at priority i is not empty, add newNode to the end
+            else{
+                priorityEndPtrs[i]->next = newNode;
+                priorityEndPtrs[i] = newNode;
+            }
+        }
+    }
+}
+
+/* ------------------------------------------------------------------------
+ Name - popFromReadyList
+ Purpose - Removes the next process at the highest priority
+ Parameters - nothing
+ Returns - a pointer to the next process to be run
+ Side Effects - none
+ ----------------------------------------------------------------------- */
+struct procStruct * popFromReadyList() {
+    readyListNode * current = &readyList[0];
+    
+    
+}
 
 /* ------------------------------------------------------------------------
    Name - finish
@@ -149,28 +217,28 @@ int fork1(char *name, int (*startFunc)(char *), char *arg,
         USLOSS_Console("fork1(): Process name is too long.  Halting...\n");
         USLOSS_Halt(1);
     }
-    strcpy(ProcTable[procSlot].name, name);
-    ProcTable[procSlot].startFunc = startFunc;
+    strcpy(procTable[procSlot].name, name);
+    procTable[procSlot].startFunc = startFunc;
     if ( arg == NULL )
-        ProcTable[procSlot].startArg[0] = '\0';
+        procTable[procSlot].startArg[0] = '\0';
     else if ( strlen(arg) >= (MAXARG - 1) ) {
         USLOSS_Console("fork1(): argument too long.  Halting...\n");
         USLOSS_Halt(1);
     }
     else
-        strcpy(ProcTable[procSlot].startArg, arg);
+        strcpy(procTable[procSlot].startArg, arg);
 
     // Initialize context for this process, but use launch function pointer for
     // the initial value of the process's program counter (PC)
 
-    USLOSS_ContextInit(&(ProcTable[procSlot].state),
-                       ProcTable[procSlot].stack,
-                       ProcTable[procSlot].stackSize,
+    USLOSS_ContextInit(&(procTable[procSlot].state),
+                       procTable[procSlot].stack,
+                       procTable[procSlot].stackSize,
                        NULL,
                        launch);
 
     // for future phase(s)
-    p1_fork(ProcTable[procSlot].pid);
+    p1_fork(procTable[procSlot].pid);
 
     // More stuff to do here...
 
