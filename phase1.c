@@ -252,7 +252,7 @@ int fork1(char *name, int (*startFunc)(char *), char *arg,
     
     //disable interrupts
     if (DEBUG && debugflag) {
-        USLOSS_Console("fork1(): Process %s - disabling interrupts.\n", name);
+        USLOSS_Console("fork1(): Process %s - disabling interrupts. FIXME!!!\n", name);
     }
     disableInterrupts();    // FIXME!!! disableInterrupts() not finished
     
@@ -299,7 +299,8 @@ int fork1(char *name, int (*startFunc)(char *), char *arg,
         }
         return -1;
     }
-        
+    
+     procTable[procSlot].pid = nextPid;
 
     // fill-in entry in process table */
     // if name is too long...
@@ -310,12 +311,14 @@ int fork1(char *name, int (*startFunc)(char *), char *arg,
     
     strcpy(procTable[procSlot].name, name);
     procTable[procSlot].startFunc = startFunc;
+    procTable[procSlot].stackSize = stacksize;
+    
     if ( arg == NULL ) {
         procTable[procSlot].startArg[0] = '\0';
     }
     
     else if ( strlen(arg) >= (MAXARG - 1) ) {
-        USLOSS_Console("ERROR: fork1(): argument too long.  Halting.\n");
+        USLOSS_Console("ERROR: fork1(): argument too long. Halting.\n");
         USLOSS_Halt(1);
     }
     
