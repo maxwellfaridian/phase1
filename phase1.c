@@ -78,13 +78,15 @@ void startup(int argc, char *argv[]) {
     int result; /* value returned by call to fork1() */
 
     /* initialize the process table */
-    if (DEBUG && debugflag)
-        USLOSS_Console("startup(): initializing process table, ProcTable[]\n");
+    if (DEBUG && debugflag) {
+        USLOSS_Console("startup(): Initializing process table, ProcTable[]\n");
+    }
     initializeProcessTable();
     
     // Initialize the Ready list, initialize block list.
-    if (DEBUG && debugflag)
-        USLOSS_Console("startup(): initializing the Ready list, initializing the block list\n");
+    if (DEBUG && debugflag) {
+        USLOSS_Console("startup(): Initializing the Ready list & the Block List\n");
+    }
     initializeReadyList();
     initializeBlockList();
 
@@ -92,25 +94,26 @@ void startup(int argc, char *argv[]) {
     initializeInterrupts();
 
     // startup a sentinel process
-    if (DEBUG && debugflag)
+    if (DEBUG && debugflag) {
         USLOSS_Console("startup(): calling fork1() for sentinel\n");
-    result = fork1("sentinel", sentinel, NULL, USLOSS_MIN_STACK,
-                    SENTINELPRIORITY);
+    }
+    
+    result = fork1("sentinel", sentinel, NULL, USLOSS_MIN_STACK, SENTINELPRIORITY);
     if (result < 0) {
         if (DEBUG && debugflag) {
-            USLOSS_Console("startup(): fork1 of sentinel returned error, ");
-            USLOSS_Console("halting...\n");
+            USLOSS_Console("ERROR: startup(): fork1 of sentinel returned an error. Halting.\n ");
         }
         USLOSS_Halt(1);
     }
   
     // start the test process
-    if (DEBUG && debugflag)
-        USLOSS_Console("startup(): calling fork1() for start1\n");
+    if (DEBUG && debugflag) {
+        USLOSS_Console("startup(): calling fork1() for start1().\n");
+    }
+    
     result = fork1("start1", start1, NULL, 2 * USLOSS_MIN_STACK, 1);
     if (result < 0) {
-        USLOSS_Console("startup(): fork1 for start1 returned an error, ");
-        USLOSS_Console("halting...\n");
+        USLOSS_Console("ERROR: startup(): fork1 for start1 returned an error. Halting.\n");
         USLOSS_Halt(1);
     }
 
@@ -299,7 +302,7 @@ int fork1(char *name, int (*startFunc)(char *), char *arg,
         
 
     // fill-in entry in process table */
-    // if name is too long
+    // if name is too long...
     if ( strlen(name) >= (MAXNAME - 1) ) {
         USLOSS_Console("ERROR: fork1(): Process %s - %s is too long a name.  Halting.\n", name, name);
         USLOSS_Halt(1);
@@ -349,11 +352,20 @@ int getNextProcSlot() {
     
     int currSlot = nextPid % MAXPROC;       // Get the hashed index of the "ideal" slot.
     int numQueries = 0;
+    
+    // Traverse procTable until an empty slot is found
     while (procTable[currSlot].status != NO_PROCESS_ASSIGNED) {
         
+        // If we have inspected each potential slot in the procTable, return -1
+        if (numQueries >= MAXPROC) {
+            return -1;
+        }
+        
+        nextPid++;
+        currSlot = nextPid % MAXPROC;
+        numQueries++;
     }
-    
-    return -1;
+    return currSlot;
 } /* getNextProcSlot */
 
 /* ------------------------------------------------------------------------
