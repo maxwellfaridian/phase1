@@ -13,6 +13,7 @@
 #include <stdio.h>
 
 #include "kernel.h"
+#include "LinkedList.h"
 
 /* ------------------------- Prototypes ----------------------------------- */
 int sentinel (char *);
@@ -31,10 +32,7 @@ struct procStruct * popFromReadyList();
 
 
 /* -------------------------- Structs ------------------------------------- */
-typedef struct listNode {
-    struct listNode * next;
-    struct procStruct * process;
-} listNode;
+
 
 
 
@@ -44,8 +42,8 @@ struct listNode * blockListHead;
 struct listNode * blockListTail;
 
 // Indexes in ReadyList
-struct listNode readyList[6] ;
-struct listNode * priorityEndPtrs[6];
+struct listNode * readyList[6] ;
+struct listNode * priorityTailPtrs[6];
 
 // Patrick's debugging global variable...
 int debugflag = 1;
@@ -147,8 +145,9 @@ void initializeBlockList() {
 
 /* ------------------------------------------------------------------------
  Name - initializeReadyList
- Purpose - Builds the ready list. Assigns each pointer marking the end of a
-    priority's list to the beginning of that list (all priorities are empty).
+ Purpose - Builds the ready list. readyList[i] is the "head" reference of 
+    the linked-list that serves as priority-i's queue. (Really priority-(i-1)'s).
+    These references are initially set to NULL.
  Parameters - none
  Returns - nothing
  Side Effects - none
@@ -156,8 +155,7 @@ void initializeBlockList() {
 void initializeReadyList() {
     
     for (int i = 0; i < 6; i++) {
-        priorityEndPtrs[i] = malloc(sizeof(listNode));                 // Each endPtr points to the beginning of it's list
-        readyList[i].next = priorityEndPtrs[i];
+        readyList[i] = NULL;
     }
 } /* initializeReadyList */
 
@@ -188,32 +186,27 @@ void pushToReadyList(struct procStruct * newProcess) {
     newNode->process = newProcess;
     
     for (int i = 0; i < 6; i++) {
-        if (newProcess->priority == i) {
-            // If the queue at priority i is empty...
-            if (&readyList[i] == priorityEndPtrs[i]) {
-                readyList[i].next = newNode;
-                priorityEndPtrs[i] = newNode;
-            }
-            // If the queue at priority i is not empty, add newNode to the end
-            else{
-                priorityEndPtrs[i]->next = newNode;
-                priorityEndPtrs[i] = newNode;
-            }
+        if (newProcess->priority == (i + 1)) {
+            addToListTail(readyList[i], priorityTailPtrs[i], newNode);
+            return;
         }
     }
 } /* pushToReadyList */
 
 /* ------------------------------------------------------------------------
  Name - popFromReadyList
- Purpose - Removes the next process at the highest priority
+ Purpose - Returns a pointer to the next process at the highest priority
  Parameters - nothing
  Returns - a pointer to the next process to be run
  Side Effects - none
  ----------------------------------------------------------------------- */
 struct procStruct * popFromReadyList() {
-    listNode * current = &readyList[0];
-    // FIXME!
-    return current->process;
+    for (int i = 0; i < 6; i++) {
+        if (readyList[i] != NULL) {
+            return removeFromListHead(readyList[i])->process;
+        }
+    }
+    return NULL;
 } /* popFromReadyList */
 
 /* ------------------------------------------------------------------------
