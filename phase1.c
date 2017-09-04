@@ -13,6 +13,7 @@
 #include <stdio.h>
 
 #include "kernel.h"
+#include "LinkedList.h"
 
 /* ------------------------- Prototypes ----------------------------------- */
 int sentinel (char *);
@@ -28,13 +29,14 @@ void initializeBlockList();
 void dumpReadyList();
 void pushToReadyList(struct procStruct *);
 struct procStruct * popFromReadyList();
+int isKernel();
+int getNextProcSlot();
+void initializeInterrupts();
+void disableInterrupts();
 
 
 /* -------------------------- Structs ------------------------------------- */
-typedef struct listNode {
-    struct listNode * next;
-    struct procStruct * process;
-} listNode;
+
 
 
 
@@ -44,8 +46,8 @@ struct listNode * blockListHead;
 struct listNode * blockListTail;
 
 // Indexes in ReadyList
-struct listNode readyList[6] ;
-struct listNode * priorityEndPtrs[6];
+struct listNode * readyList[6] ;
+struct listNode * priorityTailPtrs[6];
 
 // Patrick's debugging global variable...
 int debugflag = 1;
@@ -72,43 +74,46 @@ unsigned int nextPid = SENTINELPID;
    Returns - nothing
    Side Effects - lots, starts the whole thing
    ----------------------------------------------------------------------- */
-void startup(int argc, char *argv[])
-{
+void startup(int argc, char *argv[]) {
     int result; /* value returned by call to fork1() */
 
     /* initialize the process table */
-    if (DEBUG && debugflag)
-        USLOSS_Console("startup(): initializing process table, ProcTable[]\n");
+    if (DEBUG && debugflag) {
+        USLOSS_Console("startup(): Initializing process table, ProcTable[]\n");
+    }
     initializeProcessTable();
     
     // Initialize the Ready list, initialize block list.
-    if (DEBUG && debugflag)
-        USLOSS_Console("startup(): initializing the Ready list, initializing the block list\n");
+    if (DEBUG && debugflag) {
+        USLOSS_Console("startup(): Initializing the Ready list & the Block List\n");
+    }
     initializeReadyList();
     initializeBlockList();
 
     // Initialize the clock interrupt handler, etc. (Other required interupts)
+    initializeInterrupts();
 
     // startup a sentinel process
-    if (DEBUG && debugflag)
+    if (DEBUG && debugflag) {
         USLOSS_Console("startup(): calling fork1() for sentinel\n");
-    result = fork1("sentinel", sentinel, NULL, USLOSS_MIN_STACK,
-                    SENTINELPRIORITY);
+    }
+    
+    result = fork1("sentinel", sentinel, NULL, USLOSS_MIN_STACK, SENTINELPRIORITY);
     if (result < 0) {
         if (DEBUG && debugflag) {
-            USLOSS_Console("startup(): fork1 of sentinel returned error, ");
-            USLOSS_Console("halting...\n");
+            USLOSS_Console("ERROR: startup(): fork1 of sentinel returned an error. Halting.\n ");
         }
         USLOSS_Halt(1);
     }
   
     // start the test process
-    if (DEBUG && debugflag)
-        USLOSS_Console("startup(): calling fork1() for start1\n");
+    if (DEBUG && debugflag) {
+        USLOSS_Console("startup(): calling fork1() for start1().\n");
+    }
+    
     result = fork1("start1", start1, NULL, 2 * USLOSS_MIN_STACK, 1);
     if (result < 0) {
-        USLOSS_Console("startup(): fork1 for start1 returned an error, ");
-        USLOSS_Console("halting...\n");
+        USLOSS_Console("ERROR: startup(): fork1 for start1 returned an error. Halting.\n");
         USLOSS_Halt(1);
     }
 
@@ -139,16 +144,15 @@ void initializeProcessTable() {
  Side Effects - none
  ----------------------------------------------------------------------- */
 void initializeBlockList() {
-    
-    blockListHead = malloc(sizeof(listNode));
-    blockListTail = malloc(sizeof(listNode));
-    blockListHead->next = blockListTail;
+    blockListHead = NULL;
+    blockListTail = blockListHead;
 } /* initializeBlockList */
 
 /* ------------------------------------------------------------------------
  Name - initializeReadyList
- Purpose - Builds the ready list. Assigns each pointer marking the end of a
-    priority's list to the beginning of that list (all priorities are empty).
+ Purpose - Builds the ready list. readyList[i] is the "head" reference of 
+    the linked-list that serves as priority-i's queue. (Really priority-(i-1)'s).
+    These references are initially set to NULL.
  Parameters - none
  Returns - nothing
  Side Effects - none
@@ -156,8 +160,7 @@ void initializeBlockList() {
 void initializeReadyList() {
     
     for (int i = 0; i < 6; i++) {
-        priorityEndPtrs[i] = malloc(sizeof(listNode));                 // Each endPtr points to the beginning of it's list
-        readyList[i].next = priorityEndPtrs[i];
+        readyList[i] = NULL;
     }
 } /* initializeReadyList */
 
@@ -174,7 +177,7 @@ void dumpProcessTable() {
     for (int i = 0; i < MAXPROC; i++) {
         printf("%5s%20hi%20d%20d%20s\n", procTable->name, procTable->pid, procTable->status, procTable->priority, procTable->state);
     }
-}
+} /* dumpProcessTable */
 
 /* ------------------------------------------------------------------------
  Name - pushToReadyList
@@ -188,32 +191,28 @@ void pushToReadyList(struct procStruct * newProcess) {
     newNode->process = newProcess;
     
     for (int i = 0; i < 6; i++) {
-        if (newProcess->priority == i) {
-            // If the queue at priority i is empty...
-            if (&readyList[i] == priorityEndPtrs[i]) {
-                readyList[i].next = newNode;
-                priorityEndPtrs[i] = newNode;
-            }
-            // If the queue at priority i is not empty, add newNode to the end
-            else{
-                priorityEndPtrs[i]->next = newNode;
-                priorityEndPtrs[i] = newNode;
-            }
+        if (newProcess->priority == (i + 1)) {
+            addToListTail(readyList[i], priorityTailPtrs[i], newNode);
+            return;
         }
     }
 } /* pushToReadyList */
 
 /* ------------------------------------------------------------------------
  Name - popFromReadyList
- Purpose - Removes the next process at the highest priority
+ Purpose - Returns a pointer to the next process at the highest priority
  Parameters - nothing
- Returns - a pointer to the next process to be run
+ Returns - a pointer to the next process to be run, 
+    NULL if the ready list is empty.
  Side Effects - none
  ----------------------------------------------------------------------- */
 struct procStruct * popFromReadyList() {
-    listNode * current = &readyList[0];
-    // FIXME!
-    return current->process;
+    for (int i = 0; i < 6; i++) {
+        if (readyList[i] != NULL) {
+            return removeFromListHead(readyList[i])->process;
+        }
+    }
+    return NULL;
 } /* popFromReadyList */
 
 /* ------------------------------------------------------------------------
@@ -223,8 +222,7 @@ struct procStruct * popFromReadyList() {
    Returns - nothing
    Side Effects - none
    ----------------------------------------------------------------------- */
-void finish(int argc, char *argv[])
-{
+void finish(int argc, char *argv[]) {
     if (DEBUG && debugflag)
         USLOSS_Console("in finish...\n");
 } /* finish */
@@ -242,34 +240,91 @@ void finish(int argc, char *argv[])
                   process information changed
    ------------------------------------------------------------------------ */
 int fork1(char *name, int (*startFunc)(char *), char *arg,
-          int stacksize, int priority)
-{
-    int procSlot = -1;
+          int stacksize, int priority) {
+    
+    int procSlot = -1;          // The location in process table to store PCB
+    
+    // test if in kernel mode, halt if in user mode
+    if (!isKernel()) {
+        USLOSS_Console("ERROR: fork1(): Process %s - fork1() called in User Mode. Halting.", name);
+        USLOSS_Halt(1);
+    }
+    
+    //disable interrupts
+    if (DEBUG && debugflag) {
+        USLOSS_Console("fork1(): Process %s - disabling interrupts. FIXME!!!\n", name);
+    }
+    disableInterrupts();    // FIXME!!! disableInterrupts() not finished
+    
+    
+    if (DEBUG && debugflag) {
+        USLOSS_Console("fork1(): Process %s - creating process.\n", name);
+    }
 
-    if (DEBUG && debugflag)
-        USLOSS_Console("fork1(): creating process %s\n", name);
-
-    // test if in kernel mode; halt if in user mode
-
-    // Return if stack size is too small
+    // Return -2 if stack size is too small
+    if (stacksize < USLOSS_MIN_STACK) {
+        if (DEBUG && debugflag) {
+            USLOSS_Console("ERROR: fork1(): Process %s - Process stack size is too small.\n", name);
+        }
+        return -2;
+    }
 
     // Is there room in the process table? What is the next PID?
+    // Get next open slot in process table.
+    procSlot = getNextProcSlot();    // FIXME!!! getNextProcSlot() not finished
+    
+    // Check if ProcTable is full, if priority is out of bounds, if startFunc is NULL, if name is NULL
+    if ((procSlot == -1) ||
+        (nextPid != SENTINELPID && priority == SENTINELPRIORITY) ||
+        (nextPid != SENTINELPID && (priority > MINPRIORITY || priority < MAXPRIORITY)) ||
+        (startFunc == NULL) ||
+        (name == NULL)) {
+        
+        if (DEBUG && debugflag) {
+            if (name == NULL) {
+                USLOSS_Console("ERROR: fork1(): Process PID %d - Process name cannot be NULL.\n", Current->pid);
+            }
+            if (procSlot == -1) {
+                USLOSS_Console("ERROR: fork1(): Process %s - Process Table is full.\n", name);
+            }
+            if (nextPid != SENTINELPID && priority == SENTINELPRIORITY) {
+                USLOSS_Console("ERROR: fork1(): Process %s - Only sentinel may have priority %d.\n", name, priority);
+            }
+            if (nextPid != SENTINELPID && (priority > MINPRIORITY || priority < MAXPRIORITY)) {
+                USLOSS_Console("ERROR: fork1(): Process %s - Process priority %d is out of bounds.\n", name, priority);
+            }
+            if (startFunc == NULL) {
+                USLOSS_Console("ERROR: fork1(): Process %s - Process startFunc cannot be NULL.\n", name);
+            }
+        }
+        return -1;
+    }
+    
+     procTable[procSlot].pid = nextPid;
 
     // fill-in entry in process table */
+    // if name is too long...
     if ( strlen(name) >= (MAXNAME - 1) ) {
-        USLOSS_Console("fork1(): Process name is too long.  Halting...\n");
+        USLOSS_Console("ERROR: fork1(): Process %s - %s is too long a name.  Halting.\n", name, name);
         USLOSS_Halt(1);
     }
+    
     strcpy(procTable[procSlot].name, name);
     procTable[procSlot].startFunc = startFunc;
-    if ( arg == NULL )
+    procTable[procSlot].stackSize = stacksize;
+    
+    if ( arg == NULL ) {
         procTable[procSlot].startArg[0] = '\0';
+    }
+    
     else if ( strlen(arg) >= (MAXARG - 1) ) {
-        USLOSS_Console("fork1(): argument too long.  Halting...\n");
+        USLOSS_Console("ERROR: fork1(): argument too long. Halting.\n");
         USLOSS_Halt(1);
     }
-    else
+    
+    else{
         strcpy(procTable[procSlot].startArg, arg);
+    }
 
     // Initialize context for this process, but use launch function pointer for
     // the initial value of the process's program counter (PC)
@@ -289,6 +344,46 @@ int fork1(char *name, int (*startFunc)(char *), char *arg,
 } /* fork1 */
 
 /* ------------------------------------------------------------------------
+ Name - getNextProcSlot
+ Purpose - Finds the next available index for insertion in the process table
+ Parameters - none
+ Returns - The index next empty slot in the process table,
+    or -1 if there is no available slot (table is full)
+ Side Effects - enable interrupts
+ ------------------------------------------------------------------------ */
+int getNextProcSlot() {
+    
+    int currSlot = nextPid % MAXPROC;       // Get the hashed index of the "ideal" slot.
+    int numQueries = 0;
+    
+    // Traverse procTable until an empty slot is found
+    while (procTable[currSlot].status != NO_PROCESS_ASSIGNED) {
+        
+        // If we have inspected each potential slot in the procTable, return -1
+        if (numQueries >= MAXPROC) {
+            return -1;
+        }
+        
+        nextPid++;
+        currSlot = nextPid % MAXPROC;
+        numQueries++;
+    }
+    return currSlot;
+} /* getNextProcSlot */
+
+/* ------------------------------------------------------------------------
+ Name - isKernel
+ Purpose - Checks the current OS mode.
+ Parameters - none
+ Returns - Returns 0 if in kernel mode, 
+    !0 if in user mode.
+ Side Effects - enable interrupts
+ ------------------------------------------------------------------------ */
+int isKernel() {
+    return (USLOSS_PSR_CURRENT_MODE & USLOSS_PsrGet());
+} /* isKernel */
+
+/* ------------------------------------------------------------------------
    Name - launch
    Purpose - Dummy function to enable interrupts and launch a given process
              upon startup.
@@ -296,8 +391,7 @@ int fork1(char *name, int (*startFunc)(char *), char *arg,
    Returns - nothing
    Side Effects - enable interrupts
    ------------------------------------------------------------------------ */
-void launch()
-{
+void launch() {
     int result;
 
     if (DEBUG && debugflag)
@@ -315,7 +409,6 @@ void launch()
 
 } /* launch */
 
-
 /* ------------------------------------------------------------------------
    Name - join
    Purpose - Wait for a child process (if one has been forked) to quit.  If 
@@ -328,11 +421,9 @@ void launch()
    Side Effects - If no child process has quit before join is called, the 
                   parent is removed from the ready list and blocked.
    ------------------------------------------------------------------------ */
-int join(int *status)
-{
+int join(int *status) {
     return -1;  // -1 is not correct! Here to prevent warning.
 } /* join */
-
 
 /* ------------------------------------------------------------------------
    Name - quit
@@ -343,11 +434,9 @@ int join(int *status)
    Returns - nothing
    Side Effects - changes the parent of pid child completion status list.
    ------------------------------------------------------------------------ */
-void quit(int status)
-{
+void quit(int status) {
     p1_quit(Current->pid);
 } /* quit */
-
 
 /* ------------------------------------------------------------------------
    Name - dispatcher
@@ -359,8 +448,7 @@ void quit(int status)
    Returns - nothing
    Side Effects - the context of the machine is changed
    ----------------------------------------------------------------------- */
-void dispatcher(void)
-{
+void dispatcher(void) {
     procPtr nextProcess = NULL;
 
     p1_switch(Current->pid, nextProcess->pid);
@@ -373,7 +461,6 @@ void dispatcher(void)
     ///////////////////////////
 } /* dispatcher */
 
-
 /* ------------------------------------------------------------------------
    Name - sentinel
    Purpose - The purpose of the sentinel routine is two-fold.  One
@@ -385,9 +472,7 @@ void dispatcher(void)
    Side Effects -  if system is in deadlock, print appropriate error
                    and halt.
    ----------------------------------------------------------------------- */
-
-int sentinel (char *dummy)
-{
+int sentinel (char *dummy) {
     if (DEBUG && debugflag)
         USLOSS_Console("sentinel(): called\n");
     while (1)
@@ -397,18 +482,29 @@ int sentinel (char *dummy)
     }
 } /* sentinel */
 
-
 /* check to determine if deadlock has occurred... */
-static void checkDeadlock()
-{
+static void checkDeadlock() {
+
 } /* checkDeadlock */
 
+/*
+Initializes the interrupts.
+*/
+void initializeInterrupts() {
+
+} /* initializeInterrupts */
 
 /*
- * Disables the interrupts.
- */
-void disableInterrupts()
-{
+Enable the interrupts.
+*/
+void enableInterrupts() {
+    
+} /* enableInterrupts */
+
+/*
+Disables the interrupts.
+*/
+void disableInterrupts() {
     // turn the interrupts OFF iff we are in kernel mode
     // if not in kernel mode, print an error message and
     // halt USLOSS
