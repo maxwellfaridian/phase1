@@ -9,4 +9,11 @@ TODO: fork1():
         current already has chilren
     add new process to readyList
     call dispatcher
+
+TODO: Dispatcher():
+    Assign Current
+        if Null -> Current = pop
+        else -> old = Current, Current = pop
+    Switch Context
+
     
