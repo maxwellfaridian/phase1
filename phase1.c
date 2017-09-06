@@ -316,12 +316,10 @@ int fork1(char *name, int (*startFunc)(char *), char *arg,
     if ( arg == NULL ) {
         procTable[procSlot].startArg[0] = '\0';
     }
-    
     else if ( strlen(arg) >= (MAXARG - 1) ) {
-        USLOSS_Console("ERROR: fork1(): argument too long. Halting.\n");
+        USLOSS_Console("ERROR: fork1(): Argument too long. Halting.\n");
         USLOSS_Halt(1);
     }
-    
     else{
         strcpy(procTable[procSlot].startArg, arg);
     }

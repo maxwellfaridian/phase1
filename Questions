@@ -1,1 +1,12 @@
 Which values need to be initialized for new processes in fork1()?
+
+TODO: fork1():
+    initialization and error checking for process argument (Given)
+    initialization and error checking for process stack (MALLOC)
+    assignment of process priority
+    set parent, child, and sibling pointers
+        current has no children
+        current already has chilren
+    add new process to readyList
+    call dispatcher
+    
