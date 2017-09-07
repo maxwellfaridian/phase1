@@ -189,13 +189,9 @@ void dumpProcessTable() {
 void pushToReadyList(struct procStruct * newProcess) {
     struct listNode * newNode = malloc(sizeof(listNode));          // Create a new node to insert into the readyList.
     newNode->process = newProcess;
+    addToListTail(readyList[newProcess->priority -1], priorityTailPtrs[newProcess->priority -1], newNode);
+    return;
     
-    for (int i = 0; i < 6; i++) {
-        if (newProcess->priority == (i + 1)) {
-            addToListTail(readyList[i], priorityTailPtrs[i], newNode);
-            return;
-        }
-    }
 } /* pushToReadyList */
 
 /* ------------------------------------------------------------------------
@@ -271,7 +267,7 @@ int fork1(char *name, int (*startFunc)(char *), char *arg,
 
     // Is there room in the process table? What is the next PID?
     // Get next open slot in process table.
-    procSlot = getNextProcSlot();    // FIXME!!! getNextProcSlot() not finished
+    procSlot = getNextProcSlot();
     
     // Check if ProcTable is full, if priority is out of bounds, if startFunc is NULL, if name is NULL
     if ((procSlot == -1) ||
@@ -300,7 +296,9 @@ int fork1(char *name, int (*startFunc)(char *), char *arg,
         return -1;
     }
     
-     procTable[procSlot].pid = nextPid;
+    // Assign process the next pid
+    procTable[procSlot].pid = nextPid;
+    nextPid++;              // Increment nextPID for the next time fork1 is called
 
     // fill-in entry in process table */
     // if name is too long...
@@ -309,10 +307,24 @@ int fork1(char *name, int (*startFunc)(char *), char *arg,
         USLOSS_Halt(1);
     }
     
+    // Initialize process name and startFunc
     strcpy(procTable[procSlot].name, name);
     procTable[procSlot].startFunc = startFunc;
+    
+    // Initialize process stackSize and stack
     procTable[procSlot].stackSize = stacksize;
     
+    // if malloc fails
+    if ((procTable[procSlot].stack = malloc(stacksize)) == NULL) {
+        USLOSS_Console("ERROR: fork1(): Process %s - stack malloc failed", name);
+        USLOSS_Halt(1);
+    }
+    
+    // Assign process priority
+    procTable[procSlot].priority = priority;
+    
+    
+    // Initialize and error check for process arg
     if ( arg == NULL ) {
         procTable[procSlot].startArg[0] = '\0';
     }
@@ -323,10 +335,23 @@ int fork1(char *name, int (*startFunc)(char *), char *arg,
     else{
         strcpy(procTable[procSlot].startArg, arg);
     }
+    
+    if (Current != NULL) {              // "This" process is a child
+        if (Current->childProcPtr == NULL) {                // This is current's first child
+            Current->childProcPtr = &procTable[procSlot];
+        }
+        else {                                              // Current already has >=1 child
+            procTable[procSlot].nextSiblingPtr = Current->childProcPtr;
+            Current->childProcPtr = &procTable[procSlot];               // FIXME: New child might need to be at end of list, probably not.
+        }
+    }
+    
+    // Assign pointer to parent if the is one. If current == null, parent == null.
+    procTable[procSlot].parentProcPtr = Current;
+    
 
     // Initialize context for this process, but use launch function pointer for
     // the initial value of the process's program counter (PC)
-
     USLOSS_ContextInit(&(procTable[procSlot].state),
                        procTable[procSlot].stack,
                        procTable[procSlot].stackSize,
@@ -336,9 +361,16 @@ int fork1(char *name, int (*startFunc)(char *), char *arg,
     // for future phase(s)
     p1_fork(procTable[procSlot].pid);
 
-    // More stuff to do here...
+    // Change process status to ready and add to process list
+    procTable[procSlot].status = READY;
+    pushToReadyList(&procTable[procSlot]);
 
-    return -1;  // -1 is not correct! Here to prevent warning.
+    // Call dispatcher
+    if (procTable[procSlot].pid != SENTINELPID) {
+        dispatcher();
+    }
+    
+    return procTable[procSlot].pid;  // -1 is not correct! Here to prevent warning.
 } /* fork1 */
 
 /* ------------------------------------------------------------------------
@@ -506,5 +538,13 @@ void disableInterrupts() {
     // turn the interrupts OFF iff we are in kernel mode
     // if not in kernel mode, print an error message and
     // halt USLOSS
-
+    if (!isKernel()) {
+        USLOSS_Console("ERROR: disableInterrupts(): Called while not in kernel mode.");
+        USLOSS_Halt(1);
+    }
+    else {
+        USLOSS_Console("ERROR: disableInterrupts(): FIXME!!! FINISH FUNCTION!!!");
+        // This is going to be a bitwise operation with psr and 0x2?
+    }
+    return;
 } /* disableInterrupts */

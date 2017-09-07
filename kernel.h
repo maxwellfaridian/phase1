@@ -9,6 +9,7 @@ struct procStruct {
    procPtr         nextProcPtr;
    procPtr         childProcPtr;
    procPtr         nextSiblingPtr;
+    procPtr          parentProcPtr;
    char            name[MAXNAME];     /* process's name */
    char            startArg[MAXARG];  /* args passed to process */
    USLOSS_Context  state;             /* current context for process */
@@ -37,6 +38,9 @@ union psrValues {
 /* Some useful constants.  Add more as needed... */
 #define NO_CURRENT_PROCESS NULL
 #define NO_PROCESS_ASSIGNED 101
+#define READY 202
+#define BLOCKED 303
+#define QUIT 404
 #define MINPRIORITY 5
 #define MAXPRIORITY 1
 #define SENTINELPID 1
