@@ -20,6 +20,7 @@ struct procStruct {
    unsigned int    stackSize;
    int             status;        /* READY, BLOCKED, QUIT, etc. */
    /* other fields as needed... */
+    int             procStartTime;
 };
 
 struct psrBits {

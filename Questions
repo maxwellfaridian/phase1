@@ -17,5 +17,6 @@ TODO: Dispatcher():
     Switch Context
 
 
-QUESTION:       What about the psr referenced in description but not in function call for Context_Init?
-                Is isKernel working properly? Should it be the opposite?
+QUESTION:       What are the parameters for USLOSS_DeviceInput all about?
+                How do we do the bitwise operation for disable interrupts? psr ^ 0x2  ?
+                
