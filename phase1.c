@@ -30,9 +30,15 @@ void dumpReadyList();
 void pushToReadyList(struct procStruct *);
 struct procStruct * popFromReadyList();
 int isKernel();
+int isZapped(void);
 int getNextProcSlot();
+void enableInterrupts();
 void initializeInterrupts();
 void disableInterrupts();
+void clock_handler();
+void printBinaryHelper(unsigned n);
+void printBinary(unsigned n);
+void removeFromReadyList(struct procStruct *);
 
 
 /* -------------------------- Structs ------------------------------------- */
@@ -46,8 +52,8 @@ struct listNode * blockListHead;
 struct listNode * blockListTail;
 
 // Indexes in ReadyList
-struct listNode * readyList[6] ;
-struct listNode * priorityTailPtrs[6];
+// struct listNode * readyList[6] ;
+// struct listNode * priorityTailPtrs[6];
 
 // Patrick's debugging global variable...
 int debugflag = 1;
@@ -87,11 +93,11 @@ void startup(int argc, char *argv[]) {
     if (DEBUG && debugflag) {
         USLOSS_Console("startup(): Initializing the Ready list & the Block List\n");
     }
-    initializeReadyList();
+    ReadyList = NULL;
     initializeBlockList();
 
-    // Initialize the clock interrupt handler, etc. (Other required interupts)
-    initializeInterrupts();
+    // Initialize the clock interrupt handler
+    //USLOSS_IntVec[USLOSS_CLOCK_INT] = clock_handler;
 
     // startup a sentinel process
     if (DEBUG && debugflag) {
@@ -149,22 +155,6 @@ void initializeBlockList() {
 } /* initializeBlockList */
 
 /* ------------------------------------------------------------------------
- Name - initializeReadyList
- Purpose - Builds the ready list. readyList[i] is the "head" reference of 
-    the linked-list that serves as priority-i's queue. (Really priority-(i-1)'s).
-    These references are initially set to NULL.
- Parameters - none
- Returns - nothing
- Side Effects - none
- ----------------------------------------------------------------------- */
-void initializeReadyList() {
-    
-    for (int i = 0; i < 6; i++) {
-        readyList[i] = NULL;
-    }
-} /* initializeReadyList */
-
-/* ------------------------------------------------------------------------
  Name - dumpProcessTable
  Purpose - Outputs the contents of all entries in processTable
  Parameters - none
@@ -175,9 +165,29 @@ void dumpProcessTable() {
     printf("%5s %20s %20s %20s %20s\n", "Name", "PID", "Status", "Priority", "State");
     printf("------------------------------------------------------------------------------------------\n");
     for (int i = 0; i < MAXPROC; i++) {
-        printf("%5s%20hi%20d%20d%20s\n", procTable->name, procTable->pid, procTable->status, procTable->priority, procTable->state);
+        printf("%5s%20d\n", procTable[i].name, procTable[i].priority);
+        //printf("%5s%20hi%20d%20d%20s\n", procTable->name, procTable->pid, procTable->status, procTable->priority, procTable->state);
     }
 } /* dumpProcessTable */
+
+
+/* ------------------------------------------------------------------------
+ Name - dumpReadyList
+ Purpose - Outputs the contents of all entries in processTable
+ Parameters - none
+ Returns - nothing
+ Side Effects - none
+ ----------------------------------------------------------------------- */
+void dumpReadyList() {
+    printf("%5s\n", "NAME");
+    printf("-------\n");
+    
+    procStruct * curr = ReadyList;
+    while (curr != NULL) {
+        printf("%s\n", curr->name);
+        curr = curr->nextProcPtr;
+    }
+} /* dumpreadyList */
 
 /* ------------------------------------------------------------------------
  Name - pushToReadyList
@@ -187,16 +197,62 @@ void dumpProcessTable() {
  Side Effects - none
  ----------------------------------------------------------------------- */
 void pushToReadyList(struct procStruct * newProcess) {
-    struct listNode * newNode = malloc(sizeof(listNode));          // Create a new node to insert into the readyList.
-    newNode->process = newProcess;
     
-    for (int i = 0; i < 6; i++) {
-        if (newProcess->priority == (i + 1)) {
-            addToListTail(readyList[i], priorityTailPtrs[i], newNode);
-            return;
-        }
+    // Ready List is empty
+    if (ReadyList == NULL) {
+        ReadyList = newProcess;
     }
+    
+    // New process is the highest (lowest number) priority
+    else if (newProcess->priority < ReadyList->priority) {
+        newProcess->nextProcPtr = ReadyList;
+        ReadyList = newProcess;
+    }
+    
+    // New process must be inserted at the end of a given priority
+    else {
+        procStruct * curr = ReadyList;
+        procStruct * prev = NULL;
+        
+        while (curr->priority <= newProcess->priority) {
+            prev = curr;
+            curr = curr->nextProcPtr;
+        }
+        prev->nextProcPtr = newProcess;
+        newProcess->nextProcPtr = curr;
+    }
+    return;
+    
 } /* pushToReadyList */
+
+/* ------------------------------------------------------------------------
+ Name - removeFromReadyList
+ Purpose - Finds and removes a process pointer from the ready list.
+    Does not change the status of the process.
+ Parameters - Pointer to process to be added
+ Returns - nothing
+ Side Effects - none
+ ----------------------------------------------------------------------- */
+
+void removeFromReadyList(struct procStruct * procToRemove) {
+    struct procStruct * curr = ReadyList;
+    struct procStruct * prev = NULL;
+    
+    while (curr != procToRemove && curr != NULL) {
+        prev = curr;
+        curr = curr->nextProcPtr;
+    }
+    
+    if (curr == procToRemove) {
+        prev->nextProcPtr  = curr->nextProcPtr;
+        return;
+    }
+    
+    else {
+        USLOSS_Console("ERROR: removeFromReadyList(): Failed to remove %s from the ready list.\n", procToRemove->name);
+    }
+}
+
 
 /* ------------------------------------------------------------------------
  Name - popFromReadyList
@@ -207,12 +263,9 @@ void pushToReadyList(struct procStruct * newProcess) {
  Side Effects - none
  ----------------------------------------------------------------------- */
 struct procStruct * popFromReadyList() {
-    for (int i = 0; i < 6; i++) {
-        if (readyList[i] != NULL) {
-            return removeFromListHead(readyList[i])->process;
-        }
-    }
-    return NULL;
+    procStruct * returnProc = ReadyList;
+    ReadyList = ReadyList->nextProcPtr;
+    return returnProc;
 } /* popFromReadyList */
 
 /* ------------------------------------------------------------------------
@@ -252,7 +305,7 @@ int fork1(char *name, int (*startFunc)(char *), char *arg,
     
     //disable interrupts
     if (DEBUG && debugflag) {
-        USLOSS_Console("fork1(): Process %s - disabling interrupts. FIXME!!!\n", name);
+        USLOSS_Console("fork1(): Process %s - disabling interrupts.\n", name);
     }
     disableInterrupts();    // FIXME!!! disableInterrupts() not finished
     
@@ -271,7 +324,7 @@ int fork1(char *name, int (*startFunc)(char *), char *arg,
 
     // Is there room in the process table? What is the next PID?
     // Get next open slot in process table.
-    procSlot = getNextProcSlot();    // FIXME!!! getNextProcSlot() not finished
+    procSlot = getNextProcSlot();
     
     // Check if ProcTable is full, if priority is out of bounds, if startFunc is NULL, if name is NULL
     if ((procSlot == -1) ||
@@ -300,7 +353,9 @@ int fork1(char *name, int (*startFunc)(char *), char *arg,
         return -1;
     }
     
-     procTable[procSlot].pid = nextPid;
+    // Assign process the next pid
+    procTable[procSlot].pid = nextPid;
+    nextPid++;              // Increment nextPID for the next time fork1 is called
 
     // fill-in entry in process table */
     // if name is too long...
@@ -309,26 +364,51 @@ int fork1(char *name, int (*startFunc)(char *), char *arg,
         USLOSS_Halt(1);
     }
     
+    // Initialize process name and startFunc
     strcpy(procTable[procSlot].name, name);
     procTable[procSlot].startFunc = startFunc;
+    
+    // Initialize process stackSize and stack
     procTable[procSlot].stackSize = stacksize;
     
-    if ( arg == NULL ) {
-        procTable[procSlot].startArg[0] = '\0';
-    }
-    
-    else if ( strlen(arg) >= (MAXARG - 1) ) {
-        USLOSS_Console("ERROR: fork1(): argument too long. Halting.\n");
+    // if malloc fails
+    if ((procTable[procSlot].stack = malloc(stacksize)) == NULL) {
+        USLOSS_Console("ERROR: fork1(): Process %s - stack malloc failed\n", name);
         USLOSS_Halt(1);
     }
     
+    // Assign process priority
+    procTable[procSlot].priority = priority;
+    
+    
+    // Initialize and error check for process arg
+    if ( arg == NULL ) {
+        procTable[procSlot].startArg[0] = '\0';
+    }
+    else if ( strlen(arg) >= (MAXARG - 1) ) {
+        USLOSS_Console("ERROR: fork1(): Argument too long. Halting.\n");
+        USLOSS_Halt(1);
+    }
     else{
         strcpy(procTable[procSlot].startArg, arg);
     }
+    
+    if (Current != NULL) {              // "This" process is a child
+        if (Current->childProcPtr == NULL) {                // This is current's first child
+            Current->childProcPtr = &procTable[procSlot];
+        }
+        else {                                              // Current already has >=1 child
+            procTable[procSlot].nextSiblingPtr = Current->childProcPtr;
+            Current->childProcPtr = &procTable[procSlot];               // FIXME: New child might need to be at end of list, probably not.
+        }
+    }
+    
+    // Assign pointer to parent if the is one. If current == null, parent == null.
+    procTable[procSlot].parentProcPtr = Current;
+    
 
     // Initialize context for this process, but use launch function pointer for
     // the initial value of the process's program counter (PC)
-
     USLOSS_ContextInit(&(procTable[procSlot].state),
                        procTable[procSlot].stack,
                        procTable[procSlot].stackSize,
@@ -338,9 +418,16 @@ int fork1(char *name, int (*startFunc)(char *), char *arg,
     // for future phase(s)
     p1_fork(procTable[procSlot].pid);
 
-    // More stuff to do here...
-
-    return -1;  // -1 is not correct! Here to prevent warning.
+    // Change process status to ready and add to process list
+    procTable[procSlot].status = READY;
+    pushToReadyList(&procTable[procSlot]);
+    
+    // Call dispatcher
+    if (procTable[procSlot].pid != SENTINELPID) {
+        dispatcher();
+    }
+    
+    return procTable[procSlot].pid;  // -1 is not correct! Here to prevent warning.
 } /* fork1 */
 
 /* ------------------------------------------------------------------------
@@ -349,7 +436,7 @@ int fork1(char *name, int (*startFunc)(char *), char *arg,
  Parameters - none
  Returns - The index next empty slot in the process table,
     or -1 if there is no available slot (table is full)
- Side Effects - enable interrupts
+ Side Effects - none
  ------------------------------------------------------------------------ */
 int getNextProcSlot() {
     
@@ -398,6 +485,7 @@ void launch() {
         USLOSS_Console("launch(): started\n");
 
     // Enable interrupts
+    enableInterrupts();
 
     // Call the function passed to fork1, and capture its return value
     result = Current->startFunc(Current->startArg);
@@ -422,7 +510,46 @@ void launch() {
                   parent is removed from the ready list and blocked.
    ------------------------------------------------------------------------ */
 int join(int *status) {
-    return -1;  // -1 is not correct! Here to prevent warning.
+    
+    
+    // Processor must be in kernel mode.
+    if (!isKernel()){
+        USLOSS_Console("ERROR: join(): Process %s - Join called in user mode. Halting.\n", Current->name);
+        USLOSS_Halt(1);
+    }
+    
+    /* Disable Interrupts */
+    if (DEBUG && debugflag) {
+        USLOSS_Console("join(): Process %s - disabling interrupts.\n", Current->name);
+    }
+    disableInterrupts();
+    
+    // if Current has no un-quit children, return -2
+    if (Current->childProcPtr == NULL) {
+        return -2;
+    }
+    
+    // if no child of current has quit yet
+    if (Current->quitChildPtr == NULL) {
+        Current->status = BLOCKED_ON_JOIN;
+        removeFromReadyList(Current);
+        dispatcher();
+    }
+    
+    int quitChildPID = -404;
+    // --- if Current was blocked, but child has reactivated it
+        // --- Get quit child
+        // --- *status = child.quitStatus
+        // --- Remove child from list of list of quitChildren
+    
+    
+    // if Current was zapped in join -1
+    if (isZapped()) {
+        return -1;
+    }
+    
+    
+    return quitChildPID;  // -1 is not correct! Here to prevent warning.
 } /* join */
 
 /* ------------------------------------------------------------------------
@@ -430,12 +557,31 @@ int join(int *status) {
    Purpose - Stops the child process and notifies the parent of the death by
              putting child quit info on the parents child completion code
              list.
-   Parameters - the code to return to the grieving parent
+   Parameters - the code to return to the grieving parent <- LOL
    Returns - nothing
    Side Effects - changes the parent of pid child completion status list.
    ------------------------------------------------------------------------ */
 void quit(int status) {
-    p1_quit(Current->pid);
+    
+    // --- make sure we are in kernel mode
+    // --- disable interrupts.
+    
+    // --- Ensure that the process does not have any running children
+        // --- If this happens, print an error message and USLOSS_Halt(1)
+    // --- Change Status to QUIT and remove from ready list
+    
+    // --- If a process zapped this process (multiple?) if (isZapped())
+        // --- Unblock that process, change status the READY and add to readyList.
+    
+    // --- If Quitting process is and child and has quitChildren
+        // Do some stuff here.
+    // --- Else If Quitting Process is a child and not a parent
+        // --- Do some stuff here.
+    // --- Else, current is a parent
+        // --- Do some stuff here.
+    
+    // --- CALL DISPATCHER
+    //p1_quit(Current->pid);
 } /* quit */
 
 /* ------------------------------------------------------------------------
@@ -450,15 +596,37 @@ void quit(int status) {
    ----------------------------------------------------------------------- */
 void dispatcher(void) {
     procPtr nextProcess = NULL;
-
-    p1_switch(Current->pid, nextProcess->pid);
+    if (DEBUG && debugflag) {
+        USLOSS_Console("dispatcher(): Started\n");
+    }
+    
+    // First time dispatcher is called is for start1()
+    if (Current == NULL) {
+        Current = popFromReadyList();
+        if (DEBUG && debugflag) {
+            USLOSS_Console("dispatcher(): dispatcher assigned Current -> Process %s\n", Current->name);
+        }
+        //Current->procStartTime = USLOSS_DeviceInput(USLOSS_CLOCK_INT, 0, 0);    // FIXME
+        USLOSS_Console("dispatcher(): Current = NULL\n");
+        enableInterrupts();
+        USLOSS_ContextSwitch(NULL, &Current->state);
+    }
+    
+    // --- Otherwise, The context switch will need old = Current, Current = next (pop).
+        // --- Change old's status to ready
+        // --- Get next process from ReadyList, change status to running.
+        // --- Get start time for new Current
+        // --- p1_Switch?
+        // --- enableInterrupts() before returning to user code
+        // --- ContextSwitch
     
     
-    ///////////////////////////
+    
+    //p1_switch(Current->pid, nextProcess->pid);
+    
+    // Do not call context switch if current is the process that would be run. (Only one priority 1 process and it is already Current)
     
     
-    
-    ///////////////////////////
 } /* dispatcher */
 
 /* ------------------------------------------------------------------------
@@ -499,6 +667,10 @@ Enable the interrupts.
 */
 void enableInterrupts() {
     
+    if (USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT) == USLOSS_ERR_INVALID_PSR){
+        USLOSS_Console("ERROR: enableInterrupts(): Process %s - Failed to enable interrupts.\n", Current->name);
+    }
+    
 } /* enableInterrupts */
 
 /*
@@ -508,5 +680,31 @@ void disableInterrupts() {
     // turn the interrupts OFF iff we are in kernel mode
     // if not in kernel mode, print an error message and
     // halt USLOSS
-
+    if (!isKernel()) {
+        USLOSS_Console("ERROR: disableInterrupts(): Called while not in kernel mode.\n");
+        USLOSS_Halt(1);
+    }
+    else {
+        if (USLOSS_PsrSet(USLOSS_PsrGet() ^ USLOSS_PSR_CURRENT_INT) == USLOSS_ERR_INVALID_PSR){
+            USLOSS_Console("ERROR: disableInterrupts(): Failed to disable interrupts.\n");
+        }
+    }
+    return;
 } /* disableInterrupts */
+
+/*
+ Prints the binary representation of unsigned value n.
+*/
+void printBinaryHelper(unsigned n) {
+    /* step 1 */
+    if (n > 1)
+        printBinaryHelper(n/2);
+    
+    /* step 2 */
+    printf("%d", n % 2);
+}
+void printBinary(unsigned n) {
+    printf("Binary representation of %u is: ", n);
+    printBinaryHelper(n);
+    printf("\n");
+} /* printBinary */
