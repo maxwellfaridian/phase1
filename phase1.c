@@ -562,7 +562,26 @@ int join(int *status) {
    Side Effects - changes the parent of pid child completion status list.
    ------------------------------------------------------------------------ */
 void quit(int status) {
-    p1_quit(Current->pid);
+    
+    // --- make sure we are in kernel mode
+    // --- disable interrupts.
+    
+    // --- Ensure that the process does not have any running children
+        // --- If this happens, print an error message and USLOSS_Halt(1)
+    // --- Change Status to QUIT and remove from ready list
+    
+    // --- If a process zapped this process (multiple?) if (isZapped())
+        // --- Unblock that process, change status the READY and add to readyList.
+    
+    // --- If Quitting process is and child and has quitChildren
+        // Do some stuff here.
+    // --- Else If Quitting Process is a child and not a parent
+        // --- Do some stuff here.
+    // --- Else, current is a parent
+        // --- Do some stuff here.
+    
+    // --- CALL DISPATCHER
+    //p1_quit(Current->pid);
 } /* quit */
 
 /* ------------------------------------------------------------------------
