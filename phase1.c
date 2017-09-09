@@ -534,6 +534,7 @@ int join(int *status) {
         dispatcher();
     }
     else {
+    	//Remove quitChild from child quit list and grab it's PID
     	procPtr childToQuit = Current->quitChildPtr;
     	Current->quitChildPtr = childToQuit->quitSiblingPtr;
     	*status = childToQuit->quitStatus;
