@@ -233,7 +233,6 @@ void pushToReadyList(struct procStruct * newProcess) {
  Returns - nothing
  Side Effects - none
  ----------------------------------------------------------------------- */
-
 void removeFromReadyList(struct procStruct * procToRemove) {
     struct procStruct * curr = ReadyList;
     struct procStruct * prev = NULL;
@@ -251,8 +250,7 @@ void removeFromReadyList(struct procStruct * procToRemove) {
     else {
         USLOSS_Console("ERROR: removeFromReadyList(): Failed to remove %s from the ready list.\n", procToRemove->name);
     }
-}
-
+} /* removeFromReadyList */
 
 /* ------------------------------------------------------------------------
  Name - popFromReadyList
@@ -439,7 +437,6 @@ int fork1(char *name, int (*startFunc)(char *), char *arg,
  Side Effects - none
  ------------------------------------------------------------------------ */
 int getNextProcSlot() {
-    
     int currSlot = nextPid % MAXPROC;       // Get the hashed index of the "ideal" slot.
     int numQueries = 0;
     
@@ -549,7 +546,7 @@ int join(int *status) {
     }
     
     
-    return quitChildPID;  // -1 is not correct! Here to prevent warning.
+    return quitChildPID;  // Return PID of first quit child
 } /* join */
 
 /* ------------------------------------------------------------------------
@@ -564,11 +561,29 @@ int join(int *status) {
 void quit(int status) {
     
     // --- make sure we are in kernel mode
+    // test if in kernel mode, halt if in user mode
+    if (!isKernel()) {
+        USLOSS_Console("ERROR: quit(): Process %s - quit() called in User Mode. Halting.", Current->name);
+        USLOSS_Halt(1);
+    }
     // --- disable interrupts.
+    /* Disable Interrupts */
+    if (DEBUG && debugflag) {
+        USLOSS_Console("quit(): Process %s - disabling interrupts.\n", Current->name);
+    }
+    disableInterrupts();
     
     // --- Ensure that the process does not have any running children
         // --- If this happens, print an error message and USLOSS_Halt(1)
+    if (Current->childProcPtr != NULL) {
+        USLOSS_Console("ERROR: quit(): Process %s - Process called quit with active children.", Current->name);
+        USLOSS_Halt(1);
+    }
+    
     // --- Change Status to QUIT and remove from ready list
+    Current->quitStatus = status;
+    Current->status = QUIT;
+    removeFromReadyList(Current);
     
     // --- If a process zapped this process (multiple?) if (isZapped())
         // --- Unblock that process, change status the READY and add to readyList.
@@ -581,6 +596,7 @@ void quit(int status) {
         // --- Do some stuff here.
     
     // --- CALL DISPATCHER
+    dispatcher();
     //p1_quit(Current->pid);
 } /* quit */
 
@@ -595,7 +611,6 @@ void quit(int status) {
    Side Effects - the context of the machine is changed
    ----------------------------------------------------------------------- */
 void dispatcher(void) {
-    procPtr nextProcess = NULL;
     if (DEBUG && debugflag) {
         USLOSS_Console("dispatcher(): Started\n");
     }
@@ -612,18 +627,22 @@ void dispatcher(void) {
         USLOSS_ContextSwitch(NULL, &Current->state);
     }
     
+    else {
     // --- Otherwise, The context switch will need old = Current, Current = next (pop).
+        struct procStruct * old = Current;
         // --- Change old's status to ready
+        old->status = READY;
         // --- Get next process from ReadyList, change status to running.
-        // --- Get start time for new Current
-        // --- p1_Switch?
+        Current = popFromReadyList();
+        // --- Get start time for new Current           // FIXME!!! Still don't understand how to retrieve time
+        p1_switch(old->pid, Current->pid);
         // --- enableInterrupts() before returning to user code
+        enableInterrupts();
         // --- ContextSwitch
+        USLOSS_ContextSwitch(&old->state, &Current->state);
     
     
-    
-    //p1_switch(Current->pid, nextProcess->pid);
-    
+    }
     // Do not call context switch if current is the process that would be run. (Only one priority 1 process and it is already Current)
     
     
