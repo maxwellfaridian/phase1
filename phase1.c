@@ -179,14 +179,15 @@ void dumpProcessTable() {
  Side Effects - none
  ----------------------------------------------------------------------- */
 void dumpReadyList() {
-    printf("%5s\n", "NAME");
-    printf("-------\n");
+    printf("%10s %15s\n", "NAME", "PRIORITY");
+    printf("----------------------------\n");
     
     procStruct * curr = ReadyList;
     while (curr != NULL) {
-        printf("%s\n", curr->name);
+        printf("%10s %15d\n", curr->name, curr->priority);
         curr = curr->nextProcPtr;
     }
+    printf("----------------------------\n");
 } /* dumpreadyList */
 
 /* ------------------------------------------------------------------------
@@ -304,7 +305,7 @@ int fork1(char *name, int (*startFunc)(char *), char *arg, int stacksize, int pr
     if (DEBUG && debugflag) {
         USLOSS_Console("fork1(): Process %s - disabling interrupts.\n", name);
     }
-    disableInterrupts();    // FIXME!!! disableInterrupts() not finished
+    disableInterrupts();
     
     
     if (DEBUG && debugflag) {
@@ -419,11 +420,14 @@ int fork1(char *name, int (*startFunc)(char *), char *arg, int stacksize, int pr
     procTable[procSlot].status = READY;
     pushToReadyList(&procTable[procSlot]);
     
+    printf("dumpingReadyList from fork1\n");
+    dumpReadyList();
+    
     // Call dispatcher
     if (procTable[procSlot].pid != SENTINELPID) {
         dispatcher();
     }
-    
+//
     return procTable[procSlot].pid;  // -1 is not correct! Here to prevent warning.
 } /* fork1 */
 
@@ -478,7 +482,8 @@ void launch() {
     int result;
 
     if (DEBUG && debugflag)
-        USLOSS_Console("launch(): started\n");
+        USLOSS_Console("launch(): started process %s\n", Current->name);
+    
 
     // Enable interrupts
     enableInterrupts();
