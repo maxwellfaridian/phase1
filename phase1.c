@@ -30,10 +30,15 @@ void dumpReadyList();
 void pushToReadyList(struct procStruct *);
 struct procStruct * popFromReadyList();
 int isKernel();
+int isZapped(void);
 int getNextProcSlot();
 void enableInterrupts();
 void initializeInterrupts();
 void disableInterrupts();
+void clock_handler();
+void printBinaryHelper(unsigned n);
+void printBinary(unsigned n);
+void removeFromReadyList(struct procStruct *);
 
 
 /* -------------------------- Structs ------------------------------------- */
@@ -67,8 +72,6 @@ unsigned int nextPid = SENTINELPID;
 
 
 /* -------------------------- Functions ----------------------------------- */
-
-void clock_handler();
 /* ------------------------------------------------------------------------
    Name - startup
    Purpose - Initializes process lists and clock interrupt vector.
@@ -223,6 +226,35 @@ void pushToReadyList(struct procStruct * newProcess) {
 } /* pushToReadyList */
 
 /* ------------------------------------------------------------------------
+ Name - removeFromReadyList
+ Purpose - Finds and removes a process pointer from the ready list.
+    Does not change the status of the process.
+ Parameters - Pointer to process to be added
+ Returns - nothing
+ Side Effects - none
+ ----------------------------------------------------------------------- */
+
+void removeFromReadyList(struct procStruct * procToRemove) {
+    struct procStruct * curr = ReadyList;
+    struct procStruct * prev = NULL;
+    
+    while (curr != procToRemove && curr != NULL) {
+        prev = curr;
+        curr = curr->nextProcPtr;
+    }
+    
+    if (curr == procToRemove) {
+        prev->nextProcPtr  = curr->nextProcPtr;
+        return;
+    }
+    
+    else {
+        USLOSS_Console("ERROR: removeFromReadyList(): Failed to remove %s from the ready list.\n", procToRemove->name);
+    }
+}
+
+
+/* ------------------------------------------------------------------------
  Name - popFromReadyList
  Purpose - Returns a pointer to the next process at the highest priority
  Parameters - nothing
@@ -273,7 +305,7 @@ int fork1(char *name, int (*startFunc)(char *), char *arg,
     
     //disable interrupts
     if (DEBUG && debugflag) {
-        USLOSS_Console("fork1(): Process %s - disabling interrupts. FIXME!!!\n", name);
+        USLOSS_Console("fork1(): Process %s - disabling interrupts.\n", name);
     }
     disableInterrupts();    // FIXME!!! disableInterrupts() not finished
     
@@ -479,6 +511,7 @@ void launch() {
    ------------------------------------------------------------------------ */
 int join(int *status) {
     
+    
     // Processor must be in kernel mode.
     if (!isKernel()){
         USLOSS_Console("ERROR: join(): Process %s - Join called in user mode. Halting.\n", Current->name);
@@ -491,17 +524,32 @@ int join(int *status) {
     }
     disableInterrupts();
     
-    // if Current has no children, return -2
+    // if Current has no un-quit children, return -2
     if (Current->childProcPtr == NULL) {
         return -2;
     }
     
+    // if no child of current has quit yet
+    if (Current->quitChildPtr == NULL) {
+        Current->status = BLOCKED_ON_JOIN;
+        removeFromReadyList(Current);
+        dispatcher();
+    }
+    
+    int quitChildPID = -404;
+    // --- if Current was blocked, but child has reactivated it
+        // --- Get quit child
+        // --- *status = child.quitStatus
+        // --- Remove child from list of list of quitChildren
     
     
-    // if Current  was zapped in join -1        // FIXME!!!
+    // if Current was zapped in join -1
+    if (isZapped()) {
+        return -1;
+    }
     
     
-    return -1;  // -1 is not correct! Here to prevent warning.
+    return quitChildPID;  // -1 is not correct! Here to prevent warning.
 } /* join */
 
 /* ------------------------------------------------------------------------
@@ -509,7 +557,7 @@ int join(int *status) {
    Purpose - Stops the child process and notifies the parent of the death by
              putting child quit info on the parents child completion code
              list.
-   Parameters - the code to return to the grieving parent
+   Parameters - the code to return to the grieving parent <- LOL
    Returns - nothing
    Side Effects - changes the parent of pid child completion status list.
    ------------------------------------------------------------------------ */
@@ -544,14 +592,22 @@ void dispatcher(void) {
         enableInterrupts();
         USLOSS_ContextSwitch(NULL, &Current->state);
     }
+    
+    // --- Otherwise, The context switch will need old = Current, Current = next (pop).
+        // --- Change old's status to ready
+        // --- Get next process from ReadyList, change status to running.
+        // --- Get start time for new Current
+        // --- p1_Switch?
+        // --- enableInterrupts() before returning to user code
+        // --- ContextSwitch
+    
+    
+    
     //p1_switch(Current->pid, nextProcess->pid);
     
+    // Do not call context switch if current is the process that would be run. (Only one priority 1 process and it is already Current)
     
-    ///////////////////////////
     
-    // Enable interrupts
-    
-    ///////////////////////////
 } /* dispatcher */
 
 /* ------------------------------------------------------------------------
@@ -592,7 +648,9 @@ Enable the interrupts.
 */
 void enableInterrupts() {
     
-    USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
+    if (USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT) == USLOSS_ERR_INVALID_PSR){
+        USLOSS_Console("ERROR: enableInterrupts(): Process %s - Failed to enable interrupts.\n", Current->name);
+    }
     
 } /* enableInterrupts */
 
@@ -608,8 +666,26 @@ void disableInterrupts() {
         USLOSS_Halt(1);
     }
     else {
-        USLOSS_Console("ERROR: disableInterrupts(): FIXME!!! FINISH FUNCTION!!!\n");
-        // This is going to be a bitwise operation with psr and 0x2? Is it XOR? ( a ^ b )
+        if (USLOSS_PsrSet(USLOSS_PsrGet() ^ USLOSS_PSR_CURRENT_INT) == USLOSS_ERR_INVALID_PSR){
+            USLOSS_Console("ERROR: disableInterrupts(): Failed to disable interrupts.\n");
+        }
     }
     return;
 } /* disableInterrupts */
+
+/*
+ Prints the binary representation of unsigned value n.
+*/
+void printBinaryHelper(unsigned n) {
+    /* step 1 */
+    if (n > 1)
+        printBinaryHelper(n/2);
+    
+    /* step 2 */
+    printf("%d", n % 2);
+}
+void printBinary(unsigned n) {
+    printf("Binary representation of %u is: ", n);
+    printBinaryHelper(n);
+    printf("\n");
+} /* printBinary */
