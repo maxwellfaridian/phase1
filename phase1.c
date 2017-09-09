@@ -506,9 +506,6 @@ void launch() {
                   parent is removed from the ready list and blocked.
    ------------------------------------------------------------------------ */
 int join(int *status) {
-
-	int quitChildPID = -404;
-    
     
     // Processor must be in kernel mode.
     if (!isKernel()){
@@ -533,14 +530,14 @@ int join(int *status) {
         removeFromReadyList(Current);
         dispatcher();
     }
-    else {
-    	procPtr childToQuit = Current->quitChildPtr;
-    	Current->quitChildPtr = childToQuit->quitSiblingPtr;
-    	*status = childToQuit->quitStatus;
-    	quitChildPID = childToQuit->pid;
-    }
     
-    //int quitChildPID = -404;
+    int quitChildPID = -404;
+    
+    procPtr childToQuit = Current->quitChildPtr;
+    quitChildPID = childToQuit->pid;
+    *status = childToQuit->quitStatus;
+    Current->quitChildPtr = childToQuit->quitSiblingPtr;
+    
     // --- if Current was blocked, but child has reactivated it
         // --- Get quit child
         // --- *status = child.quitStatus
