@@ -97,7 +97,7 @@ void startup(int argc, char *argv[]) {
     initializeBlockList();
 
     // Initialize the clock interrupt handler
-    //USLOSS_IntVec[USLOSS_CLOCK_INT] = clock_handler;
+    //USLOSS_IntVec[USLOSS_CLOCK_INT] = clockHandler;
 
     // startup a sentinel process
     if (DEBUG && debugflag) {
@@ -155,20 +155,20 @@ void initializeBlockList() {
 } /* initializeBlockList */
 
 /* ------------------------------------------------------------------------
- Name - dumpProcessTable
+ Name - dumpProcesses
  Purpose - Outputs the contents of all entries in processTable
  Parameters - none
  Returns - nothing
  Side Effects - none
  ----------------------------------------------------------------------- */
-void dumpProcessTable() {
-    printf("%5s %20s %20s %20s %20s\n", "Name", "PID", "Status", "Priority", "State");
+void dumpProcesses() {
+    printf("%10s%20s%20s%20s%20s\n", "Name", "PID", "Status", "Priority", "Parent");
     printf("------------------------------------------------------------------------------------------\n");
     for (int i = 0; i < MAXPROC; i++) {
-        printf("%5s%20d\n", procTable[i].name, procTable[i].priority);
-        //printf("%5s%20hi%20d%20d%20s\n", procTable->name, procTable->pid, procTable->status, procTable->priority, procTable->state);
+        //printf("%5s%20d\n", procTable[i].name, procTable[i].priority);
+        printf("%5s%20hi%20d%20d%20s\n", procTable[i].name, procTable[i].pid, procTable[i].status, procTable[i].priority, procTable[i].parentProcPtr->name);
     }
-} /* dumpProcessTable */
+} /* dumpProcesses */
 
 
 /* ------------------------------------------------------------------------
@@ -420,9 +420,6 @@ int fork1(char *name, int (*startFunc)(char *), char *arg, int stacksize, int pr
     procTable[procSlot].status = READY;
     pushToReadyList(&procTable[procSlot]);
     
-    printf("dumpingReadyList from fork1\n");
-    dumpReadyList();
-    
     // Call dispatcher
     if (procTable[procSlot].pid != SENTINELPID) {
         dispatcher();
@@ -532,7 +529,7 @@ int join(int *status) {
     // if no child of current has quit yet
     if (Current->quitChildPtr == NULL) {
         Current->status = BLOCKED_ON_JOIN;
-        removeFromReadyList(Current);
+//        removeFromReadyList(Current);
         dispatcher();
     }
     
@@ -589,16 +586,35 @@ void quit(int status) {
         USLOSS_Halt(1);
     }
     
-    // --- Change Status to QUIT and remove from ready list
+    // --- Change Status to QUIT
     Current->quitStatus = status;
     Current->status = QUIT;
-    removeFromReadyList(Current);
     
     // --- If a process zapped this process (multiple?) if (isZapped())
-        // --- Unblock that process, change status the READY and add to readyList.
+    // --- Unblock that process, change status the READY and add to readyList.
+    if (isZapped()) {
+        procPtr zapper = Current->whoZappedMePtr;
+        while (zapper != NULL) {
+            zapper->status = READY;
+            pushToReadyList(zapper);
+            zapper = zapper->nextWhoZappedMePrt;
+        }
+    }
     
     // --- If Quitting process is and child and has quitChildren
-        // Do some stuff here.
+    if (Current->parentProcPtr != NULL && Current->quitChildPtr != NULL) {
+        // --- Remove all children on quit list.
+        // --- Remove self and reactivate parent
+    }
+
+    // QUESTION 3 testing
+//    if (Current->parentProcPtr != NULL) {
+//        if (Current->parentProcPtr->status != READY) {
+//            Current->parentProcPtr->status = READY;
+//            pushToReadyList(Current->parentProcPtr);
+//        }
+//    }
+    
     // --- Else If Quitting Process is a child and not a parent
         // --- Do some stuff here.
     // --- Else, current is a parent
@@ -627,11 +643,11 @@ void dispatcher(void) {
     // First time dispatcher is called is for start1()
     if (Current == NULL) {
         Current = popFromReadyList();
+        Current->status = ACTIVE;
         if (DEBUG && debugflag) {
             USLOSS_Console("dispatcher(): dispatcher assigned Current -> Process %s\n", Current->name);
         }
         //Current->procStartTime = USLOSS_DeviceInput(USLOSS_CLOCK_INT, 0, 0);    // FIXME
-        USLOSS_Console("dispatcher(): Current = NULL\n");
         enableInterrupts();
         USLOSS_ContextSwitch(NULL, &Current->state);
     }
@@ -640,18 +656,24 @@ void dispatcher(void) {
     // --- Otherwise, The context switch will need old = Current, Current = next (pop).
         struct procStruct * old = Current;
         // --- Change old's status to ready
-        old->status = READY;
+        if (old->status == ACTIVE) {
+            old->status = READY;
+            pushToReadyList(old);
+        }
         // --- Get next process from ReadyList, change status to running.
-        Current = popFromReadyList();
+        Current = popFromReadyList();                   // If delete testing area, uncomment me
+        Current->status = ACTIVE;
+        
+        printf("Current ===== %s\n", Current->name);
+        //pushToReadyList(Current);
         // --- Get start time for new Current           // FIXME!!! Still don't understand how to retrieve time
         p1_switch(old->pid, Current->pid);
         // --- enableInterrupts() before returning to user code
         enableInterrupts();
         // --- ContextSwitch
         USLOSS_ContextSwitch(&old->state, &Current->state);
-    
-    
     }
+    
     // Do not call context switch if current is the process that would be run. (Only one priority 1 process and it is already Current)
     
     
