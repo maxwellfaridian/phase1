@@ -139,6 +139,27 @@ void startup(int argc, char *argv[]) {
 void initializeProcessTable() {
     for (int i = 0; i < MAXPROC; i++) {
         procTable[i].status = NO_PROCESS_ASSIGNED;
+//        nextProcPtr;
+//        childProcPtr;
+//        nextSiblingPtr;
+//        parentProcPtr;
+//        quitChildPtr;
+//        quitSiblingPtr;
+//        whoZappedMePtr;
+//        nextWhoZappedMePrt;
+//        name[MAXNAME];     /* process's name */
+//        startArg[MAXARG];  /* args passed to process */
+//        state;             /* current context for process */
+//        pid;               /* process id */
+//        priority;
+//        int (* startFunc) (char *);   /* function where process begins -- launch */
+//        char           *stack;
+//        unsigned int    stackSize;
+//        int             status;        /* READY, BLOCKED, QUIT, etc. */
+//        /* other fields as needed... */
+//        int             procStartTime;
+//        int             zapped;
+//        int             quitStatus;
     }
 } /* initializeProcessTable */
 
@@ -420,7 +441,7 @@ int fork1(char *name, int (*startFunc)(char *), char *arg, int stacksize, int pr
     procTable[procSlot].status = READY;
     pushToReadyList(&procTable[procSlot]);
     
-    // Call dispatcher
+    // Call dispatcher if not fork on sentinel
     if (procTable[procSlot].pid != SENTINELPID) {
         dispatcher();
     }
@@ -476,7 +497,7 @@ int isKernel() {
    Side Effects - enable interrupts
    ------------------------------------------------------------------------ */
 void launch() {
-    int result;
+    int arg;
 
     if (DEBUG && debugflag)
         USLOSS_Console("launch(): started process %s\n", Current->name);
@@ -486,12 +507,12 @@ void launch() {
     enableInterrupts();
 
     // Call the function passed to fork1, and capture its return value
-    result = Current->startFunc(Current->startArg);
+    arg = Current->startFunc(Current->startArg);
 
     if (DEBUG && debugflag)
         USLOSS_Console("Process %d returned to launch\n", Current->pid);
 
-    quit(result);
+    quit(arg);
 
 } /* launch */
 
@@ -509,6 +530,7 @@ void launch() {
    ------------------------------------------------------------------------ */
 int join(int *status) {
     
+    int quitChildPID = -3;
     // Processor must be in kernel mode.
     if (!isKernel()){
         USLOSS_Console("ERROR: join(): Process %s - Join called in user mode. Halting.\n", Current->name);
@@ -533,17 +555,12 @@ int join(int *status) {
         dispatcher();
     }
     
-    int quitChildPID = -404;
+    printf("ChildPID == %d", quitChildPID);
     
     procPtr childToQuit = Current->quitChildPtr;
     quitChildPID = childToQuit->pid;
     *status = childToQuit->quitStatus;
     Current->quitChildPtr = childToQuit->quitSiblingPtr;
-    
-    // --- if Current was blocked, but child has reactivated it
-        // --- Get quit child
-        // --- *status = child.quitStatus
-        // --- Remove child from list of list of quitChildren
     
     
     // if Current was zapped in join -1
@@ -601,19 +618,19 @@ void quit(int status) {
         }
     }
     
-    // --- If Quitting process is and child and has quitChildren
+    // --- If Quitting process is a child and has quitChildren
     if (Current->parentProcPtr != NULL && Current->quitChildPtr != NULL) {
         // --- Remove all children on quit list.
         // --- Remove self and reactivate parent
     }
 
     // QUESTION 3 testing
-//    if (Current->parentProcPtr != NULL) {
-//        if (Current->parentProcPtr->status != READY) {
-//            Current->parentProcPtr->status = READY;
-//            pushToReadyList(Current->parentProcPtr);
-//        }
-//    }
+    if (Current->parentProcPtr != NULL) {
+        if (Current->parentProcPtr->status != READY) {
+            Current->parentProcPtr->status = READY;
+            pushToReadyList(Current->parentProcPtr);
+        }
+    }
     
     // --- Else If Quitting Process is a child and not a parent
         // --- Do some stuff here.
@@ -636,9 +653,15 @@ void quit(int status) {
    Side Effects - the context of the machine is changed
    ----------------------------------------------------------------------- */
 void dispatcher(void) {
+    
     if (DEBUG && debugflag) {
         USLOSS_Console("dispatcher(): Started\n");
     }
+    
+    disableInterrupts();
+    
+    USLOSS_Console("Dumping From Dispatcher:\n");
+    dumpReadyList();
     
     // First time dispatcher is called is for start1()
     if (Current == NULL) {
@@ -665,7 +688,6 @@ void dispatcher(void) {
         Current->status = ACTIVE;
         
         printf("Current ===== %s\n", Current->name);
-        //pushToReadyList(Current);
         // --- Get start time for new Current           // FIXME!!! Still don't understand how to retrieve time
         p1_switch(old->pid, Current->pid);
         // --- enableInterrupts() before returning to user code
@@ -678,6 +700,42 @@ void dispatcher(void) {
     
     
 } /* dispatcher */
+
+/* ------------------------------------------------------------------------
+ Name - zap
+ Purpose - Marks a process with pid as zapped. If zap is called on nonexistent
+    process, Halt(1). If a process calls zap on itself, Halt(1). Zap does not
+    return until Process_PID has quit.
+ Parameters - int pid -> The process to be zapped
+ Returns - 0: The zapped process has quit.
+ |        -1: The calling process was zapped while in zap.
+ Side Effects - The Process calling zap is added to the list of processes
+    which called zap on Process_PID. 
+              - Process_PID's zappedMarker is set to true;
+ ----------------------------------------------------------------------- */
+int zap(int pid) {
+    
+    // Ensure we are in kernel mode before disabling interrupts
+    if (!isKernel()) {
+        USLOSS_Console("ERROR: zap(): Process %s - zap called while in user mode. Halting.", Current->name);
+        USLOSS_Halt(1);
+    }
+    disableInterrupts();
+    
+    // If Current tries to zap an nonexistent process
+    if (procTable[pid % MAXPROC].status == NO_PROCESS_ASSIGNED) {
+        USLOSS_Console("ERROR: zap(): Process %s - process tried to zap a nonexistent process. Halting.", Current->name);
+        USLOSS_Halt(1);
+    }
+    
+    // If Current tries to zap itself
+    if (Current->pid == pid) {
+        USLOSS_Console("ERROR: zap(): Process %s - process tried to call zap on itself. Halting.", Current->name);
+        USLOSS_Halt(1);
+    }
+    
+    return -1;
+}
 
 /* ------------------------------------------------------------------------
    Name - sentinel

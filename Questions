@@ -1,26 +1,11 @@
 Which values need to be initialized for new processes in fork1()?
 
-TODO: fork1():
-    initialization and error checking for process argument (Given)  DONE
-    initialization and error checking for process stack (MALLOC)    DONE
-    assignment of process priority                                  DONE
-    set parent, child, and sibling pointers                         DONE
-        current has no children                                     DONE
-        current already has chilren                                 DONE
-    add new process to readyList                                    DONE
-    call dispatcher                                                 DONE
-
-TODO: Dispatcher():
-    Assign Current
-        if Null -> Current = pop
-        else -> old = Current, Current = pop
-    Switch Context
-
+TODO:   checkDeadlock()
+        USLOSS_IntVec[USLOSS_CLOCK_INT] = clockHandler (startup())
+        
 
 QUESTION:
                 How do we do the bitwise operation for disable interrupts? psr ^ 0x2  ? (I think this one is done)
 
                1) What are the parameters for USLOSS_DeviceInput all about?           (Dispatcher, timeSliceChecker (writeMe))
-               2) OK. How to properly initialize the USLOSS_IntVec[USLOSS_CLOCK_INT]? Must be related to DeviceInput. (Startup)
-               3) When a child quits, if the parent has been QUIT_BLOCKED (waiting for a child to quit),
-                        should its parent be put back on the ready list?            (Quit)
+               2) OK. How to properly initialize the USLOSS_IntVec[USLOSS_CLOCK_INT]?  (Startup)
