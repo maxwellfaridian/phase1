@@ -6,10 +6,10 @@ ASSIGNMENT = 452phase1
 CC = gcc
 AR = ar
 
-COBJS = phase1.o LinkedList.o
+COBJS = phase1.o
 CSRCS = ${COBJS:.o=.c}
 
-HDRS = kernel.h phase1.h LinkedList.h
+HDRS = kernel.h phase1.h
 
 INCLUDE = ${PREFIX}/include
 
