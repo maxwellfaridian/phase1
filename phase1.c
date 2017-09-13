@@ -43,6 +43,7 @@ void nullifyProcess(int);
 void addToQuitChildList(struct procStruct *);
 void removeFromChildList(struct procStruct *);
 void clockHandler(int dev, void *arg);
+void illegalArgumentHandler(int dev, void *arg);
 int getCurrentTime();
 
 /* -------------------------- Structs ------------------------------------- */
@@ -55,12 +56,8 @@ int getCurrentTime();
 struct listNode * blockListHead;
 struct listNode * blockListTail;
 
-// Indexes in ReadyList
-// struct listNode * readyList[6] ;
-// struct listNode * priorityTailPtrs[6];
-
 // Patrick's debugging global variable...
-int debugflag = 1;
+int debugflag = 0;
 
 // the process table
 procStruct procTable[MAXPROC];
@@ -102,7 +99,7 @@ void startup(int argc, char *argv[]) {
 
     // Initialize the clock interrupt handler
     USLOSS_IntVec[USLOSS_CLOCK_INT] = clockHandler;
-
+    USLOSS_IntVec[USLOSS_ILLEGAL_INT] = illegalArgumentHandler;
     // startup a sentinel process
     if (DEBUG && debugflag) {
         USLOSS_Console("startup(): calling fork1() for sentinel\n");
@@ -576,8 +573,13 @@ int join(int *status) {
     }
     disableInterrupts();
     
-    // if Current has no un-quit children, return -2
-    if (Current->childProcPtr == NULL) {
+    
+    if (DEBUG && debugflag) {
+        USLOSS_Console("Dumping processes from join()...\n");
+        dumpProcesses();
+    }
+    // if Current has no children, return -2
+    if (Current->childProcPtr == NULL && Current->quitChildPtr == NULL) {
         return -2;
     }
     
@@ -622,13 +624,12 @@ int join(int *status) {
    ------------------------------------------------------------------------ */
 void quit(int status) {
     
-    // --- make sure we are in kernel mode
     // test if in kernel mode, halt if in user mode
     if (!isKernel()) {
         USLOSS_Console("ERROR: quit(): Process %s - quit() called in User Mode. Halting.", Current->name);
         USLOSS_Halt(1);
     }
-    // --- disable interrupts.
+    
     /* Disable Interrupts */
     if (DEBUG && debugflag) {
         USLOSS_Console("quit(): Process %s - disabling interrupts.\n", Current->name);
@@ -656,24 +657,41 @@ void quit(int status) {
             zapper = zapper->nextWhoZappedMePrt;
         }
     }
+    
+    
     int currPID = Current->pid;
+    
+    
     // --- If Quitting process is a child and has its own quitChildren
     if (Current->parentProcPtr != NULL && Current->quitChildPtr != NULL) {
         // --- Remove all children on quit list.
+        while (Current->quitChildPtr != NULL) {
+            int quitChildPID = Current->quitChildPtr->pid;
+            Current->quitChildPtr = Current->quitChildPtr->quitSiblingPtr;
+            nullifyProcess(quitChildPID);
+        }
         // --- Remove self and reactivate parent
+        Current->parentProcPtr->status = READY;
+        pushToReadyList(Current->parentProcPtr);
+        
+        addToQuitChildList(Current->parentProcPtr);
+        removeFromChildList(Current->parentProcPtr);
+        //removeFromChildList(Current);
+        
     }
     
     // --- Else If Quitting Process is a child and not a parent
     else if (Current->parentProcPtr != NULL) {
+        // Add quit child to list of quit children
+        addToQuitChildList(Current->parentProcPtr);
+        removeFromChildList(Current->parentProcPtr);
+        //removeFromChildList(Current);
+        
         // Once the child has quit, add parent back to the readyList.
         if (Current->parentProcPtr->status != READY) {
             Current->parentProcPtr->status = READY;
             pushToReadyList(Current->parentProcPtr);
         }
-        // Add quit child to list of quit children
-        addToQuitChildList(Current);
-        removeFromChildList(Current);
-        
     }
     
     // --- Else, current is a parent only
@@ -685,8 +703,6 @@ void quit(int status) {
         }
         nullifyProcess(Current->pid);
     }
-        // --- Do some stuff here.
-    
     
     p1_quit(currPID);
     // --- CALL DISPATCHER
@@ -694,43 +710,62 @@ void quit(int status) {
 } /* quit */
 
 /* addToQuitChildList - Adds, in order, the procStruct to the list of children its parent has that have quit.*/
-void addToQuitChildList(struct procStruct * childToAdd) {
-    
-    if (childToAdd->parentProcPtr->quitChildPtr == NULL) {
-        childToAdd->parentProcPtr->quitChildPtr = childToAdd;
+void addToQuitChildList(procPtr ptr) {
+    if (ptr->quitChildPtr == NULL) {
+        ptr->quitChildPtr = Current;
         return;
     }
     
-    procPtr index = childToAdd->parentProcPtr->quitChildPtr;
-    
-    while (index->quitSiblingPtr != NULL) {
-        index = index->quitSiblingPtr;
+    procPtr child = ptr->quitChildPtr;
+    while (child->quitSiblingPtr != NULL) {
+        child = child->quitSiblingPtr;
     }
-    index->quitSiblingPtr = childToAdd;
     
-} /* addToQuitChildList */
+    child->quitSiblingPtr = Current;
+}/* addToQuitChildList */
 
 
-/* removeFromChildList - Removes the procStruct from the list of children its parent has. */
-void removeFromChildList(struct procStruct * childToRemove) {
+void removeFromChildList(struct procStruct * parent) {
     
-    // If childToRemove is the head of the linked list of children
-    if (childToRemove == childToRemove->parentProcPtr->childProcPtr) {
-        childToRemove->parentProcPtr->childProcPtr = childToRemove->nextSiblingPtr;
+    if (Current == parent->childProcPtr) {
+        parent->childProcPtr = parent->childProcPtr->nextSiblingPtr;
     }
     
     else {
-        procPtr index = childToRemove->parentProcPtr->childProcPtr;
-        while (index->nextSiblingPtr != childToRemove) {
-            index = index->nextSiblingPtr;
+        procPtr ptr = parent->childProcPtr;
+        while (ptr->nextSiblingPtr != Current) {
+            ptr = ptr->nextSiblingPtr;
         }
-        index->nextSiblingPtr = index->nextSiblingPtr->nextSiblingPtr;
+        ptr->nextSiblingPtr = ptr->nextSiblingPtr->nextSiblingPtr;
     }
     
     if (DEBUG && debugflag) {
-        USLOSS_Console("removeFromChildList(): Process %d removed.\n", childToRemove->pid);
+        USLOSS_Console("removeFromChildList(): Process %d removed.\n", Current->pid);
     }
+    
 }
+
+///* removeFromChildList - Removes the procStruct from the list of children its parent has. */
+//void removeFromChildList(struct procStruct * childToRemove) {
+//    
+//    procPtr ptr = childToRemove;
+//    // If childToRemove is the head of the linked list of children
+//    if (childToRemove == childToRemove->parentProcPtr->childProcPtr) {
+//        childToRemove->parentProcPtr->childProcPtr = childToRemove->nextSiblingPtr;
+//    }
+//    
+//    else {
+//        ptr = childToRemove->parentProcPtr->childProcPtr;
+//        while (ptr->nextSiblingPtr != childToRemove) {
+//            ptr = ptr->nextSiblingPtr;
+//        }
+//        ptr->nextSiblingPtr = ptr->nextSiblingPtr->nextSiblingPtr;
+//    }
+//    
+//    if (DEBUG && debugflag) {
+//        USLOSS_Console("removeFromChildList(): Process %d removed.\n", childToRemove->pid);
+//    }
+//}
 
 /* ------------------------------------------------------------------------
    Name - dispatcher
@@ -835,8 +870,9 @@ int zap(int pid) {
                    and halt.
    ----------------------------------------------------------------------- */
 int sentinel (char *dummy) {
-    if (DEBUG && debugflag)
+    if (DEBUG && debugflag) {
         USLOSS_Console("sentinel(): called\n");
+    }
     while (1)
     {
         checkDeadlock();
@@ -920,6 +956,10 @@ void printBinary(unsigned n) {
     printf("\n");
 } /* printBinary */
 
+int getpid() {
+    return Current->pid;
+}
+
 /*
  * This function simply checks if the Current process has been zapped
  */
@@ -931,8 +971,14 @@ void clockHandler(int dev, void *arg) {
     
     int procTimeUsed = getCurrentTime() - Current->procStartTime;
     
-    if (procTimeUsed >= 80 ){
+    if (procTimeUsed >= MAXTIMESLOT){
         dispatcher();
+    }
+}
+
+void illegalArgumentHandler(int dev, void *arg) {
+    if (DEBUG && debugflag) {
+        USLOSS_Console("illegalArgumentHandler(): called\n");
     }
 }
 

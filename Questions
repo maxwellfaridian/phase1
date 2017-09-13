@@ -5,7 +5,4 @@ TODO:   checkDeadlock()
         
 
 QUESTION:
-                How do we do the bitwise operation for disable interrupts? psr ^ 0x2  ? (I think this one is done)
-
-               1) What are the parameters for USLOSS_DeviceInput all about?           (Dispatcher, timeSliceChecker (writeMe))
-               2) OK. How to properly initialize the USLOSS_IntVec[USLOSS_CLOCK_INT]?  (Startup)
+            Test08 returns "SIMULATOR TRAP: USLOSS_IntVec[USLOSS_ILLEGAL_INT] is NULL!"
