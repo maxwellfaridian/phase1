@@ -98,8 +98,8 @@ void startup(int argc, char *argv[]) {
     initializeBlockList();
 
     // Initialize the clock interrupt handler
-    USLOSS_IntVec[USLOSS_CLOCK_INT] = clockHandler;
-    USLOSS_IntVec[USLOSS_ILLEGAL_INT] = illegalArgumentHandler;
+    initializeInterrupts();
+    
     // startup a sentinel process
     if (DEBUG && debugflag) {
         USLOSS_Console("startup(): calling fork1() for sentinel\n");
@@ -191,7 +191,6 @@ void nullifyProcess(int pidToNullify) {
     procTable[i].procStartTime = -1;
     procTable[i].zapped = 0;
     procTable[i].quitStatus = -404;
-    
 } /*nullifyProcess */
 
 /* ------------------------------------------------------------------------
@@ -220,7 +219,6 @@ void dumpProcesses() {
         printf("%10s%20hi%20d%20d\n", procTable[i].name, procTable[i].pid, procTable[i].status, procTable[i].priority);
     }
 } /* dumpProcesses */
-
 
 /* ------------------------------------------------------------------------
  Name - dumpReadyList
@@ -709,14 +707,22 @@ void quit(int status) {
     dispatcher();
 } /* quit */
 
+/* ------------------------------------------------------------------------
+ Name - addToQuitChildList
+ Purpose - Adds a child that has quit to a parent's list of quit-child-
+    processes (adds at the end of the list).
+ Parameters - procPtr parent: The parent process whose child has quit.
+ Returns - nothing
+ Side Effects - none
+ ----------------------------------------------------------------------- */
 /* addToQuitChildList - Adds, in order, the procStruct to the list of children its parent has that have quit.*/
-void addToQuitChildList(procPtr ptr) {
-    if (ptr->quitChildPtr == NULL) {
-        ptr->quitChildPtr = Current;
+void addToQuitChildList(procPtr parent) {
+    if (parent->quitChildPtr == NULL) {
+        parent->quitChildPtr = Current;
         return;
     }
     
-    procPtr child = ptr->quitChildPtr;
+    procPtr child = parent->quitChildPtr;
     while (child->quitSiblingPtr != NULL) {
         child = child->quitSiblingPtr;
     }
@@ -724,7 +730,14 @@ void addToQuitChildList(procPtr ptr) {
     child->quitSiblingPtr = Current;
 }/* addToQuitChildList */
 
-
+/* ------------------------------------------------------------------------
+ Name - removeFromChildList
+ Purpose - Removes a child that has quit from a parent's list of active-child-
+    processes.
+ Parameters - procPtr parent: The parent process whose child has quit.
+ Returns - nothing
+ Side Effects - none
+ ----------------------------------------------------------------------- */
 void removeFromChildList(struct procStruct * parent) {
     
     if (Current == parent->childProcPtr) {
@@ -743,9 +756,7 @@ void removeFromChildList(struct procStruct * parent) {
         USLOSS_Console("removeFromChildList(): Process %d removed.\n", Current->pid);
     }
     
-}
-
-///* removeFromChildList - Removes the procStruct from the list of children its parent has. */
+} /* removeFromChildList */
 //void removeFromChildList(struct procStruct * childToRemove) {
 //    
 //    procPtr ptr = childToRemove;
@@ -817,7 +828,7 @@ void dispatcher(void) {
         USLOSS_ContextSwitch(&old->state, &Current->state);
     }
     
-    // Do not call context switch if current is the process that would be run. (Only one priority 1 process and it is already Current)
+    // Do not call context switch if current is the process that would be run. (Only one priority 1 process and it is already Current) FIXME?
     
     
 } /* dispatcher */
@@ -880,7 +891,16 @@ int sentinel (char *dummy) {
     }
 } /* sentinel */
 
-/* check to determine if deadlock has occurred... */
+/* ------------------------------------------------------------------------
+ Name - checkDeadlock
+ Purpose - Checks the Process Table at the end of a program run to ensure 
+           that the sentinel is the only process still in the list.
+         - Throws an error, halts if there are more than one processes
+    remaining.
+ Parameters - none
+ Returns - nothing
+ Side Effects - none
+ ----------------------------------------------------------------------- */
 static void checkDeadlock() {
     int numProcs = 0;
     
@@ -902,16 +922,27 @@ static void checkDeadlock() {
     
 } /* checkDeadlock */
 
-/*
-Initializes the interrupts.
-*/
+/* ------------------------------------------------------------------------
+ Name - initializeinterrupts
+ Purpose - Initializes the interrupts required (clock interrupts).
+         - Initializes a non-null value for Illegal_Int in IntVec.
+ Parameters - none
+ Returns - nothing
+ Side Effects - none
+ ----------------------------------------------------------------------- */
 void initializeInterrupts() {
-
+    USLOSS_IntVec[USLOSS_CLOCK_INT] = clockHandler;
+    USLOSS_IntVec[USLOSS_ILLEGAL_INT] = illegalArgumentHandler;
 } /* initializeInterrupts */
 
-/*
-Enable the interrupts.
-*/
+/* ------------------------------------------------------------------------
+ Name - enableInterrupts
+ Purpose - Enables interrupts.
+         - Throws an error if USLOSS is passed an invalid PSR
+ Parameters - none
+ Returns - nothing
+ Side Effects - none
+ ----------------------------------------------------------------------- */
 void enableInterrupts() {
     
     if (USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT) == USLOSS_ERR_INVALID_PSR){
@@ -920,9 +951,14 @@ void enableInterrupts() {
     
 } /* enableInterrupts */
 
-/*
-Disables the interrupts.
-*/
+/* ------------------------------------------------------------------------
+ Name - disableInterrupts
+ Purpose - Disable interrupts
+         - Thows an error if USLOSS is passed an invalid PSR
+ Parameters - none
+ Returns - nothing
+ Side Effects - none
+ ----------------------------------------------------------------------- */
 void disableInterrupts() {
     // turn the interrupts OFF iff we are in kernel mode
     // if not in kernel mode, print an error message and
@@ -939,9 +975,15 @@ void disableInterrupts() {
     return;
 } /* disableInterrupts */
 
-/*
- Prints the binary representation of unsigned value n.
-*/
+/* ------------------------------------------------------------------------
+ Name - printBinary
+ Purpose - Computes and prints a binary representation of an unsigned value.
+         - Includes a healper function for recursion purposes.
+         - FOR TESTING ONLY! This function is never called in an actual run.
+ Parameters - none
+ Returns - nothing
+ Side Effects - none
+ ----------------------------------------------------------------------- */
 void printBinaryHelper(unsigned n) {
     /* step 1 */
     if (n > 1)
@@ -956,32 +998,57 @@ void printBinary(unsigned n) {
     printf("\n");
 } /* printBinary */
 
+
+/* ------------------------------------------------------------------------
+ Name - getPID
+ Purpose - Returns the PID of the currently running process.
+         - Required by some testcases.
+ Parameters - none
+ Returns - int - Current->pid
+ Side Effects - none
+ ----------------------------------------------------------------------- */
 int getpid() {
     return Current->pid;
-}
+} /* getpid */
 
-/*
- * This function simply checks if the Current process has been zapped
- */
+/* ------------------------------------------------------------------------
+ Name - isZapped
+ Purpose - Returns true if the currently running process was zapped.
+ Parameters - none
+ Returns - int - Current->zapped
+ Side Effects - none
+ ----------------------------------------------------------------------- */
 int isZapped(void) {
 	return Current->zapped;
-}
+} /* isZapped */
 
+/* ------------------------------------------------------------------------
+ Name - clockHandler
+ Purpose - Handles the main functionality of the clock handler. After each 
+           time slice (of 20ms), clockHandler checks if the currently running
+           process has exceeded its allotted 80ms. If yes, call dispatcher. If no,
+           do nothing.
+ Parameters - none
+ Returns - nothing
+ Side Effects - none
+ ----------------------------------------------------------------------- */
 void clockHandler(int dev, void *arg) {
     
     int procTimeUsed = getCurrentTime() - Current->procStartTime;
     
     if (procTimeUsed >= MAXTIMESLOT){
+        // FIXME!!! Do I need to add current back to the readyList? I think YES. FIXME!!!
         dispatcher();
     }
-}
+} /* clockHandler */
 
-void illegalArgumentHandler(int dev, void *arg) {
-    if (DEBUG && debugflag) {
-        USLOSS_Console("illegalArgumentHandler(): called\n");
-    }
-}
-
+/* ------------------------------------------------------------------------
+ Name - getCurrentTime
+ Purpose - Returns the time in milliseconds since USLOSS started running
+ Parameters - none
+ Returns - int - Time in milliseconds since USLOSS started running.
+ Side Effects - none
+ ----------------------------------------------------------------------- */
 int getCurrentTime() {
     int status;
     if (USLOSS_DeviceInput(USLOSS_CLOCK_INT, 0, &status) == USLOSS_DEV_INVALID) {
@@ -989,4 +1056,19 @@ int getCurrentTime() {
         USLOSS_Halt(1);
     }
     return status/1000;
-}
+} /* getCurrentTime */
+
+/* ------------------------------------------------------------------------
+ Name - illegalArgumentHandler
+ Purpose - Basically only here to avoid warnings about uninitialized values.
+         - Required by USLOSS.
+         - May have to alter this method later. Check Piazza for updates.
+ Parameters - none
+ Returns - nothing
+ Side Effects - none
+ ----------------------------------------------------------------------- */
+void illegalArgumentHandler(int dev, void *arg) {
+    if (DEBUG && debugflag) {
+        USLOSS_Console("illegalArgumentHandler(): called\n");
+    }
+} /* illegalArgumentHandler */
