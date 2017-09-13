@@ -42,7 +42,8 @@ void removeFromReadyList(struct procStruct *);
 void nullifyProcess(int);
 void addToQuitChildList(struct procStruct *);
 void removeFromChildList(struct procStruct *);
-void clockHandler(int interruptType, void* func);
+void clockHandler(int dev, void *arg);
+int getCurrentTime();
 
 /* -------------------------- Structs ------------------------------------- */
 
@@ -591,7 +592,6 @@ int join(int *status) {
     
     if (DEBUG && debugflag) {
         USLOSS_Console("join(): Child %s has status of quit.\n", childThatQuit->name);
-        dumpProcesses();
         dumpReadyList();
     }
     
@@ -656,7 +656,7 @@ void quit(int status) {
             zapper = zapper->nextWhoZappedMePrt;
         }
     }
-    
+    int currPID = Current->pid;
     // --- If Quitting process is a child and has its own quitChildren
     if (Current->parentProcPtr != NULL && Current->quitChildPtr != NULL) {
         // --- Remove all children on quit list.
@@ -677,10 +677,18 @@ void quit(int status) {
     }
     
     // --- Else, current is a parent only
+    else {
+        while (Current->quitChildPtr != NULL) {
+            int quitChildPID = Current->quitChildPtr->pid;
+            Current->quitChildPtr = Current->quitChildPtr->quitSiblingPtr;
+            nullifyProcess(quitChildPID);
+        }
+        nullifyProcess(Current->pid);
+    }
         // --- Do some stuff here.
     
     
-    p1_quit(Current->pid);
+    p1_quit(currPID);
     // --- CALL DISPATCHER
     dispatcher();
 } /* quit */
@@ -742,8 +750,6 @@ void dispatcher(void) {
     
     disableInterrupts();
     
-    USLOSS_Console("Dumping From Dispatcher:\n");
-    dumpReadyList();
     
     // First time dispatcher is called is for start1()
     if (Current == NULL) {
@@ -752,7 +758,7 @@ void dispatcher(void) {
         if (DEBUG && debugflag) {
             USLOSS_Console("dispatcher(): dispatcher assigned Current -> Process %s\n", Current->name);
         }
-        //Current->procStartTime = USLOSS_DeviceInput(USLOSS_CLOCK_INT, 0, 0);    // FIXME
+        Current->procStartTime = getCurrentTime();
         enableInterrupts();
         USLOSS_ContextSwitch(NULL, &Current->state);
     }
@@ -768,14 +774,10 @@ void dispatcher(void) {
         // --- Get next process from ReadyList, change status to running.
         Current = popFromReadyList();                   // If delete testing area, uncomment me
         Current->status = ACTIVE;
-        // --- Get start time for new Current           // FIXME!!! Still don't understand how to retrieve time
         p1_switch(old->pid, Current->pid);
         // --- enableInterrupts() before returning to user code
+        Current->procStartTime = getCurrentTime();
         enableInterrupts();
-        
-        if (DEBUG && debugflag) {
-            printf("Current == %s, Old == %s\n", Current->name, old->name);
-        }
         // --- ContextSwitch
         USLOSS_ContextSwitch(&old->state, &Current->state);
     }
@@ -844,7 +846,24 @@ int sentinel (char *dummy) {
 
 /* check to determine if deadlock has occurred... */
 static void checkDeadlock() {
-
+    int numProcs = 0;
+    
+    // Count the number of processes remaining in the process table.
+    for (int i = 0; i < MAXPROC; i++) {
+        if (procTable[i].status != NO_PROCESS_ASSIGNED) {
+            numProcs++;
+        }
+    }
+    
+    // Should be only the sentinel. If not, there is an error
+    if (numProcs > 1) {
+        USLOSS_Console("ERROR: checkDeadlock(): %d processes in the process table remaining. Halting.\n", numProcs);
+        USLOSS_Halt(1);
+    }
+    
+    USLOSS_Console("All processes complete.\n");
+    USLOSS_Halt(0);
+    
 } /* checkDeadlock */
 
 /*
@@ -908,4 +927,20 @@ int isZapped(void) {
 	return Current->zapped;
 }
 
-void clockHandle() {}
+void clockHandler(int dev, void *arg) {
+    
+    int procTimeUsed = getCurrentTime() - Current->procStartTime;
+    
+    if (procTimeUsed >= 80 ){
+        dispatcher();
+    }
+}
+
+int getCurrentTime() {
+    int status;
+    if (USLOSS_DeviceInput(USLOSS_CLOCK_INT, 0, &status) == USLOSS_DEV_INVALID) {
+        USLOSS_Console("ERROR: getCurrentTime(): Encountered error fetching current time. Halting.\n");
+        USLOSS_Halt(1);
+    }
+    return status/1000;
+}
