@@ -1,22 +1,8 @@
 Which values need to be initialized for new processes in fork1()?
 
-TODO: fork1():
-    initialization and error checking for process argument (Given)  DONE
-    initialization and error checking for process stack (MALLOC)    DONE
-    assignment of process priority                                  DONE
-    set parent, child, and sibling pointers                         DONE
-        current has no children                                     DONE
-        current already has chilren                                 DONE
-    add new process to readyList                                    DONE
-    call dispatcher                                                 DONE
+TODO:   checkDeadlock()
+        USLOSS_IntVec[USLOSS_CLOCK_INT] = clockHandler (startup())
+        
 
-TODO: Dispatcher():
-    Assign Current
-        if Null -> Current = pop
-        else -> old = Current, Current = pop
-    Switch Context
-
-
-QUESTION:       What are the parameters for USLOSS_DeviceInput all about?
-                How do we do the bitwise operation for disable interrupts? psr ^ 0x2  ?
-                
+QUESTION:
+            Test08 returns "SIMULATOR TRAP: USLOSS_IntVec[USLOSS_ILLEGAL_INT] is NULL!"

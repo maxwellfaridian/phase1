@@ -39,7 +39,12 @@ void clock_handler();
 void printBinaryHelper(unsigned n);
 void printBinary(unsigned n);
 void removeFromReadyList(struct procStruct *);
-
+void nullifyProcess(int);
+void addToQuitChildList(struct procStruct *);
+void removeFromChildList(struct procStruct *);
+void clockHandler(int dev, void *arg);
+void illegalArgumentHandler(int dev, void *arg);
+int getCurrentTime();
 
 /* -------------------------- Structs ------------------------------------- */
 
@@ -51,12 +56,8 @@ void removeFromReadyList(struct procStruct *);
 struct listNode * blockListHead;
 struct listNode * blockListTail;
 
-// Indexes in ReadyList
-// struct listNode * readyList[6] ;
-// struct listNode * priorityTailPtrs[6];
-
 // Patrick's debugging global variable...
-int debugflag = 1;
+int debugflag = 0;
 
 // the process table
 procStruct procTable[MAXPROC];
@@ -97,8 +98,8 @@ void startup(int argc, char *argv[]) {
     initializeBlockList();
 
     // Initialize the clock interrupt handler
-    //USLOSS_IntVec[USLOSS_CLOCK_INT] = clock_handler;
-
+    initializeInterrupts();
+    
     // startup a sentinel process
     if (DEBUG && debugflag) {
         USLOSS_Console("startup(): calling fork1() for sentinel\n");
@@ -139,8 +140,58 @@ void startup(int argc, char *argv[]) {
 void initializeProcessTable() {
     for (int i = 0; i < MAXPROC; i++) {
         procTable[i].status = NO_PROCESS_ASSIGNED;
+        procTable[i].nextProcPtr = NULL;
+        procTable[i].childProcPtr = NULL;
+        procTable[i].nextSiblingPtr = NULL;
+        procTable[i].parentProcPtr = NULL;
+        procTable[i].quitChildPtr = NULL;
+        procTable[i].quitSiblingPtr = NULL;
+        procTable[i].whoZappedMePtr = NULL;
+        procTable[i].nextWhoZappedMePrt = NULL;
+        procTable[i].name[0] = '\0';     /* process's name */
+        procTable[i].startArg[0] = '\0';  /* args passed to process */
+        procTable[i].pid = -1;               /* process id */
+        procTable[i].priority = -1;
+        procTable[i].startFunc = NULL;   /* function where process begins -- launch */
+        procTable[i].stack = NULL;
+        procTable[i].stackSize = -1;
+        procTable[i].procStartTime = -1;
+        procTable[i].zapped = 0;
+        procTable[i].quitStatus = -404;
     }
 } /* initializeProcessTable */
+
+/* ------------------------------------------------------------------------
+ Name - nullifyProcess
+ Purpose - Empties the procTable of the process with pid == pidToNullify
+ Parameters - int pidToNullify - The PID of the process to zero out.
+ Returns - nothing
+ Side Effects - none
+ ----------------------------------------------------------------------- */
+void nullifyProcess(int pidToNullify) {
+    
+    int i = pidToNullify % MAXPROC;
+    
+    procTable[i].status = NO_PROCESS_ASSIGNED;
+    procTable[i].nextProcPtr = NULL;
+    procTable[i].childProcPtr = NULL;
+    procTable[i].nextSiblingPtr = NULL;
+    procTable[i].parentProcPtr = NULL;
+    procTable[i].quitChildPtr = NULL;
+    procTable[i].quitSiblingPtr = NULL;
+    procTable[i].whoZappedMePtr = NULL;
+    procTable[i].nextWhoZappedMePrt = NULL;
+    procTable[i].name[0] = '\0';     /* process's name */
+    procTable[i].startArg[0] = '\0';  /* args passed to process */
+    procTable[i].pid = -1;               /* process id */
+    procTable[i].priority = -1;
+    procTable[i].startFunc = NULL;   /* function where process begins -- launch */
+    procTable[i].stack = NULL;
+    procTable[i].stackSize = -1;
+    procTable[i].procStartTime = -1;
+    procTable[i].zapped = 0;
+    procTable[i].quitStatus = -404;
+} /*nullifyProcess */
 
 /* ------------------------------------------------------------------------
  Name - initializeBlockList
@@ -155,21 +206,19 @@ void initializeBlockList() {
 } /* initializeBlockList */
 
 /* ------------------------------------------------------------------------
- Name - dumpProcessTable
+ Name - dumpProcesses
  Purpose - Outputs the contents of all entries in processTable
  Parameters - none
  Returns - nothing
  Side Effects - none
  ----------------------------------------------------------------------- */
-void dumpProcessTable() {
-    printf("%5s %20s %20s %20s %20s\n", "Name", "PID", "Status", "Priority", "State");
-    printf("------------------------------------------------------------------------------------------\n");
+void dumpProcesses() {
+    printf("%10s%20s%20s%20s\n", "Name", "PID", "Status", "Priority");
+    printf("------------------------------------------------------------------------\n");
     for (int i = 0; i < MAXPROC; i++) {
-        printf("%5s%20d\n", procTable[i].name, procTable[i].priority);
-        //printf("%5s%20hi%20d%20d%20s\n", procTable->name, procTable->pid, procTable->status, procTable->priority, procTable->state);
+        printf("%10s%20hi%20d%20d\n", procTable[i].name, procTable[i].pid, procTable[i].status, procTable[i].priority);
     }
-} /* dumpProcessTable */
-
+} /* dumpProcesses */
 
 /* ------------------------------------------------------------------------
  Name - dumpReadyList
@@ -179,14 +228,15 @@ void dumpProcessTable() {
  Side Effects - none
  ----------------------------------------------------------------------- */
 void dumpReadyList() {
-    printf("%5s\n", "NAME");
-    printf("-------\n");
+    printf("%10s %15s\n", "NAME", "PRIORITY");
+    printf("----------------------------\n");
     
     procStruct * curr = ReadyList;
     while (curr != NULL) {
-        printf("%s\n", curr->name);
+        printf("%10s %15d\n", curr->name, curr->priority);
         curr = curr->nextProcPtr;
     }
+    printf("----------------------------\n");
 } /* dumpreadyList */
 
 /* ------------------------------------------------------------------------
@@ -304,7 +354,7 @@ int fork1(char *name, int (*startFunc)(char *), char *arg, int stacksize, int pr
     if (DEBUG && debugflag) {
         USLOSS_Console("fork1(): Process %s - disabling interrupts.\n", name);
     }
-    disableInterrupts();    // FIXME!!! disableInterrupts() not finished
+    disableInterrupts();
     
     
     if (DEBUG && debugflag) {
@@ -419,11 +469,11 @@ int fork1(char *name, int (*startFunc)(char *), char *arg, int stacksize, int pr
     procTable[procSlot].status = READY;
     pushToReadyList(&procTable[procSlot]);
     
-    // Call dispatcher
+    // Call dispatcher if not fork on sentinel
     if (procTable[procSlot].pid != SENTINELPID) {
         dispatcher();
     }
-    
+//
     return procTable[procSlot].pid;  // -1 is not correct! Here to prevent warning.
 } /* fork1 */
 
@@ -475,21 +525,22 @@ int isKernel() {
    Side Effects - enable interrupts
    ------------------------------------------------------------------------ */
 void launch() {
-    int result;
+    int arg;
 
     if (DEBUG && debugflag)
-        USLOSS_Console("launch(): started\n");
+        USLOSS_Console("launch(): started process %s\n", Current->name);
+    
 
     // Enable interrupts
     enableInterrupts();
 
     // Call the function passed to fork1, and capture its return value
-    result = Current->startFunc(Current->startArg);
+    arg = Current->startFunc(Current->startArg);
 
     if (DEBUG && debugflag)
         USLOSS_Console("Process %d returned to launch\n", Current->pid);
 
-    quit(result);
+    quit(arg);
 
 } /* launch */
 
@@ -507,6 +558,7 @@ void launch() {
    ------------------------------------------------------------------------ */
 int join(int *status) {
     
+    int quitChildPID = -3;
     // Processor must be in kernel mode.
     if (!isKernel()){
         USLOSS_Console("ERROR: join(): Process %s - Join called in user mode. Halting.\n", Current->name);
@@ -519,19 +571,29 @@ int join(int *status) {
     }
     disableInterrupts();
     
-    // if Current has no un-quit children, return -2
-    if (Current->childProcPtr == NULL) {
+    
+    if (DEBUG && debugflag) {
+        USLOSS_Console("Dumping processes from join()...\n");
+        dumpProcesses();
+    }
+    // if Current has no children, return -2
+    if (Current->childProcPtr == NULL && Current->quitChildPtr == NULL) {
         return -2;
     }
     
     // if no child of current has quit yet
     if (Current->quitChildPtr == NULL) {
         Current->status = BLOCKED_ON_JOIN;
-        removeFromReadyList(Current);
         dispatcher();
     }
     
-    int quitChildPID = -404;
+    // A child has quit and reactivated its parent
+    procPtr childThatQuit = Current->quitChildPtr;
+    
+    if (DEBUG && debugflag) {
+        USLOSS_Console("join(): Child %s has status of quit.\n", childThatQuit->name);
+        dumpReadyList();
+    }
     
     //Remove quitChild from child quit list and grab it's PID
     procPtr childToQuit = Current->quitChildPtr;
@@ -539,10 +601,11 @@ int join(int *status) {
     *status = childToQuit->quitStatus;
     Current->quitChildPtr = childToQuit->quitSiblingPtr;
     
-    // --- if Current was blocked, but child has reactivated it
-        // --- Get quit child
-        // --- *status = child.quitStatus
-        // --- Remove child from list of list of quitChildren
+    quitChildPID = childThatQuit->pid;
+    *status = childThatQuit->quitStatus;
+    // Remove child from parent's quitlist
+    childThatQuit->parentProcPtr->quitChildPtr = childThatQuit->quitSiblingPtr;
+    nullifyProcess(quitChildPID);
     
     
     // if Current was zapped in join -1
@@ -565,13 +628,12 @@ int join(int *status) {
    ------------------------------------------------------------------------ */
 void quit(int status) {
     
-    // --- make sure we are in kernel mode
     // test if in kernel mode, halt if in user mode
     if (!isKernel()) {
         USLOSS_Console("ERROR: quit(): Process %s - quit() called in User Mode. Halting.", Current->name);
         USLOSS_Halt(1);
     }
-    // --- disable interrupts.
+    
     /* Disable Interrupts */
     if (DEBUG && debugflag) {
         USLOSS_Console("quit(): Process %s - disabling interrupts.\n", Current->name);
@@ -585,25 +647,139 @@ void quit(int status) {
         USLOSS_Halt(1);
     }
     
-    // --- Change Status to QUIT and remove from ready list
+    // --- Change Status to QUIT
     Current->quitStatus = status;
     Current->status = QUIT;
-    removeFromReadyList(Current);
     
     // --- If a process zapped this process (multiple?) if (isZapped())
-        // --- Unblock that process, change status the READY and add to readyList.
+    // --- Unblock that process, change status the READY and add to readyList.
+    if (isZapped()) {
+        procPtr zapper = Current->whoZappedMePtr;
+        while (zapper != NULL) {
+            zapper->status = READY;
+            pushToReadyList(zapper);
+            zapper = zapper->nextWhoZappedMePrt;
+        }
+    }
     
-    // --- If Quitting process is and child and has quitChildren
-        // Do some stuff here.
+    int currPID = Current->pid;
+    
+    // --- If Quitting process is a child and has its own quitChildren
+    if (Current->parentProcPtr != NULL && Current->quitChildPtr != NULL) {
+        // --- Remove all children on quit list.
+        while (Current->quitChildPtr != NULL) {
+            int quitChildPID = Current->quitChildPtr->pid;
+            Current->quitChildPtr = Current->quitChildPtr->quitSiblingPtr;
+            nullifyProcess(quitChildPID);
+        }
+        // --- Remove self and reactivate parent
+        Current->parentProcPtr->status = READY;
+        pushToReadyList(Current->parentProcPtr);
+        
+        addToQuitChildList(Current->parentProcPtr);
+        removeFromChildList(Current->parentProcPtr);
+        //removeFromChildList(Current);
+    }
+    
     // --- Else If Quitting Process is a child and not a parent
-        // --- Do some stuff here.
-    // --- Else, current is a parent
-        // --- Do some stuff here.
+    else if (Current->parentProcPtr != NULL) {
+        // Add quit child to list of quit children
+        addToQuitChildList(Current->parentProcPtr);
+        removeFromChildList(Current->parentProcPtr);
+        //removeFromChildList(Current);
+        
+        // Once the child has quit, add parent back to the readyList.
+        if (Current->parentProcPtr->status != READY) {
+            Current->parentProcPtr->status = READY;
+            pushToReadyList(Current->parentProcPtr);
+        }
+    }
     
+    // --- Else, current is a parent only
+    else {
+        while (Current->quitChildPtr != NULL) {
+            int quitChildPID = Current->quitChildPtr->pid;
+            Current->quitChildPtr = Current->quitChildPtr->quitSiblingPtr;
+            nullifyProcess(quitChildPID);
+        }
+        nullifyProcess(Current->pid);
+    }
+    
+    p1_quit(currPID);
     // --- CALL DISPATCHER
     dispatcher();
-    //p1_quit(Current->pid);
 } /* quit */
+
+/* ------------------------------------------------------------------------
+ Name - addToQuitChildList
+ Purpose - Adds a child that has quit to a parent's list of quit-child-
+    processes (adds at the end of the list).
+ Parameters - procPtr parent: The parent process whose child has quit.
+ Returns - nothing
+ Side Effects - none
+ ----------------------------------------------------------------------- */
+/* addToQuitChildList - Adds, in order, the procStruct to the list of children its parent has that have quit.*/
+void addToQuitChildList(procPtr parent) {
+    if (parent->quitChildPtr == NULL) {
+        parent->quitChildPtr = Current;
+        return;
+    }
+    
+    procPtr child = parent->quitChildPtr;
+    while (child->quitSiblingPtr != NULL) {
+        child = child->quitSiblingPtr;
+    }
+    
+    child->quitSiblingPtr = Current;
+}/* addToQuitChildList */
+
+/* ------------------------------------------------------------------------
+ Name - removeFromChildList
+ Purpose - Removes a child that has quit from a parent's list of active-child-
+    processes.
+ Parameters - procPtr parent: The parent process whose child has quit.
+ Returns - nothing
+ Side Effects - none
+ ----------------------------------------------------------------------- */
+void removeFromChildList(struct procStruct * parent) {
+    
+    if (Current == parent->childProcPtr) {
+        parent->childProcPtr = parent->childProcPtr->nextSiblingPtr;
+    }
+    
+    else {
+        procPtr ptr = parent->childProcPtr;
+        while (ptr->nextSiblingPtr != Current) {
+            ptr = ptr->nextSiblingPtr;
+        }
+        ptr->nextSiblingPtr = ptr->nextSiblingPtr->nextSiblingPtr;
+    }
+    
+    if (DEBUG && debugflag) {
+        USLOSS_Console("removeFromChildList(): Process %d removed.\n", Current->pid);
+    }
+    
+} /* removeFromChildList */
+//void removeFromChildList(struct procStruct * childToRemove) {
+//    
+//    procPtr ptr = childToRemove;
+//    // If childToRemove is the head of the linked list of children
+//    if (childToRemove == childToRemove->parentProcPtr->childProcPtr) {
+//        childToRemove->parentProcPtr->childProcPtr = childToRemove->nextSiblingPtr;
+//    }
+//    
+//    else {
+//        ptr = childToRemove->parentProcPtr->childProcPtr;
+//        while (ptr->nextSiblingPtr != childToRemove) {
+//            ptr = ptr->nextSiblingPtr;
+//        }
+//        ptr->nextSiblingPtr = ptr->nextSiblingPtr->nextSiblingPtr;
+//    }
+//    
+//    if (DEBUG && debugflag) {
+//        USLOSS_Console("removeFromChildList(): Process %d removed.\n", childToRemove->pid);
+//    }
+//}
 
 /* ------------------------------------------------------------------------
    Name - dispatcher
@@ -616,18 +792,22 @@ void quit(int status) {
    Side Effects - the context of the machine is changed
    ----------------------------------------------------------------------- */
 void dispatcher(void) {
+    
     if (DEBUG && debugflag) {
         USLOSS_Console("dispatcher(): Started\n");
     }
     
+    disableInterrupts();
+    
+    
     // First time dispatcher is called is for start1()
     if (Current == NULL) {
         Current = popFromReadyList();
+        Current->status = ACTIVE;
         if (DEBUG && debugflag) {
             USLOSS_Console("dispatcher(): dispatcher assigned Current -> Process %s\n", Current->name);
         }
-        //Current->procStartTime = USLOSS_DeviceInput(USLOSS_CLOCK_INT, 0, 0);    // FIXME
-        USLOSS_Console("dispatcher(): Current = NULL\n");
+        Current->procStartTime = getCurrentTime();
         enableInterrupts();
         USLOSS_ContextSwitch(NULL, &Current->state);
     }
@@ -636,22 +816,61 @@ void dispatcher(void) {
     // --- Otherwise, The context switch will need old = Current, Current = next (pop).
         struct procStruct * old = Current;
         // --- Change old's status to ready
-        old->status = READY;
+        if (old->status == ACTIVE) {
+            old->status = READY;
+            pushToReadyList(old);
+        }
         // --- Get next process from ReadyList, change status to running.
-        Current = popFromReadyList();
-        // --- Get start time for new Current           // FIXME!!! Still don't understand how to retrieve time
+        Current = popFromReadyList();                   // If delete testing area, uncomment me
+        Current->status = ACTIVE;
         p1_switch(old->pid, Current->pid);
         // --- enableInterrupts() before returning to user code
+        Current->procStartTime = getCurrentTime();
         enableInterrupts();
         // --- ContextSwitch
         USLOSS_ContextSwitch(&old->state, &Current->state);
-    
-    
     }
-    // Do not call context switch if current is the process that would be run. (Only one priority 1 process and it is already Current)
+    
+    // Do not call context switch if current is the process that would be run. (Only one priority 1 process and it is already Current) FIXME?
     
     
 } /* dispatcher */
+
+/* ------------------------------------------------------------------------
+ Name - zap
+ Purpose - Marks a process with pid as zapped. If zap is called on nonexistent
+    process, Halt(1). If a process calls zap on itself, Halt(1). Zap does not
+    return until Process_PID has quit.
+ Parameters - int pid -> The process to be zapped
+ Returns - 0: The zapped process has quit.
+ |        -1: The calling process was zapped while in zap.
+ Side Effects - The Process calling zap is added to the list of processes
+    which called zap on Process_PID. 
+              - Process_PID's zappedMarker is set to true;
+ ----------------------------------------------------------------------- */
+int zap(int pid) {
+    
+    // Ensure we are in kernel mode before disabling interrupts
+    if (!isKernel()) {
+        USLOSS_Console("ERROR: zap(): Process %s - zap called while in user mode. Halting.", Current->name);
+        USLOSS_Halt(1);
+    }
+    disableInterrupts();
+    
+    // If Current tries to zap an nonexistent process
+    if (procTable[pid % MAXPROC].status == NO_PROCESS_ASSIGNED) {
+        USLOSS_Console("ERROR: zap(): Process %s - process tried to zap a nonexistent process. Halting.", Current->name);
+        USLOSS_Halt(1);
+    }
+    
+    // If Current tries to zap itself
+    if (Current->pid == pid) {
+        USLOSS_Console("ERROR: zap(): Process %s - process tried to call zap on itself. Halting.", Current->name);
+        USLOSS_Halt(1);
+    }
+    
+    return -1;
+}
 
 /* ------------------------------------------------------------------------
    Name - sentinel
@@ -665,8 +884,9 @@ void dispatcher(void) {
                    and halt.
    ----------------------------------------------------------------------- */
 int sentinel (char *dummy) {
-    if (DEBUG && debugflag)
+    if (DEBUG && debugflag) {
         USLOSS_Console("sentinel(): called\n");
+    }
     while (1)
     {
         checkDeadlock();
@@ -674,21 +894,58 @@ int sentinel (char *dummy) {
     }
 } /* sentinel */
 
-/* check to determine if deadlock has occurred... */
+/* ------------------------------------------------------------------------
+ Name - checkDeadlock
+ Purpose - Checks the Process Table at the end of a program run to ensure 
+           that the sentinel is the only process still in the list.
+         - Throws an error, halts if there are more than one processes
+    remaining.
+ Parameters - none
+ Returns - nothing
+ Side Effects - none
+ ----------------------------------------------------------------------- */
 static void checkDeadlock() {
-
+    int numProcs = 0;
+    
+    // Count the number of processes remaining in the process table.
+    for (int i = 0; i < MAXPROC; i++) {
+        if (procTable[i].status != NO_PROCESS_ASSIGNED) {
+            numProcs++;
+        }
+    }
+    
+    // Should be only the sentinel. If not, there is an error
+    if (numProcs > 1) {
+        USLOSS_Console("ERROR: checkDeadlock(): %d processes in the process table remaining. Halting.\n", numProcs);
+        USLOSS_Halt(1);
+    }
+    
+    USLOSS_Console("All processes complete.\n");
+    USLOSS_Halt(0);
+    
 } /* checkDeadlock */
 
-/*
-Initializes the interrupts.
-*/
+/* ------------------------------------------------------------------------
+ Name - initializeinterrupts
+ Purpose - Initializes the interrupts required (clock interrupts).
+         - Initializes a non-null value for Illegal_Int in IntVec.
+ Parameters - none
+ Returns - nothing
+ Side Effects - none
+ ----------------------------------------------------------------------- */
 void initializeInterrupts() {
-
+    USLOSS_IntVec[USLOSS_CLOCK_INT] = clockHandler;
+    USLOSS_IntVec[USLOSS_ILLEGAL_INT] = illegalArgumentHandler;
 } /* initializeInterrupts */
 
-/*
-Enable the interrupts.
-*/
+/* ------------------------------------------------------------------------
+ Name - enableInterrupts
+ Purpose - Enables interrupts.
+         - Throws an error if USLOSS is passed an invalid PSR
+ Parameters - none
+ Returns - nothing
+ Side Effects - none
+ ----------------------------------------------------------------------- */
 void enableInterrupts() {
     
     if (USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT) == USLOSS_ERR_INVALID_PSR){
@@ -697,9 +954,14 @@ void enableInterrupts() {
     
 } /* enableInterrupts */
 
-/*
-Disables the interrupts.
-*/
+/* ------------------------------------------------------------------------
+ Name - disableInterrupts
+ Purpose - Disable interrupts
+         - Thows an error if USLOSS is passed an invalid PSR
+ Parameters - none
+ Returns - nothing
+ Side Effects - none
+ ----------------------------------------------------------------------- */
 void disableInterrupts() {
     // turn the interrupts OFF iff we are in kernel mode
     // if not in kernel mode, print an error message and
@@ -716,9 +978,15 @@ void disableInterrupts() {
     return;
 } /* disableInterrupts */
 
-/*
- Prints the binary representation of unsigned value n.
-*/
+/* ------------------------------------------------------------------------
+ Name - printBinary
+ Purpose - Computes and prints a binary representation of an unsigned value.
+         - Includes a healper function for recursion purposes.
+         - FOR TESTING ONLY! This function is never called in an actual run.
+ Parameters - none
+ Returns - nothing
+ Side Effects - none
+ ----------------------------------------------------------------------- */
 void printBinaryHelper(unsigned n) {
     /* step 1 */
     if (n > 1)
@@ -733,9 +1001,77 @@ void printBinary(unsigned n) {
     printf("\n");
 } /* printBinary */
 
-/*
- * This function simply checks if the Current process has been zapped
- */
+
+/* ------------------------------------------------------------------------
+ Name - getPID
+ Purpose - Returns the PID of the currently running process.
+         - Required by some testcases.
+ Parameters - none
+ Returns - int - Current->pid
+ Side Effects - none
+ ----------------------------------------------------------------------- */
+int getpid() {
+    return Current->pid;
+} /* getpid */
+
+/* ------------------------------------------------------------------------
+ Name - isZapped
+ Purpose - Returns true if the currently running process was zapped.
+ Parameters - none
+ Returns - int - Current->zapped
+ Side Effects - none
+ ----------------------------------------------------------------------- */
 int isZapped(void) {
 	return Current->zapped;
-}
+} /* isZapped */
+
+/* ------------------------------------------------------------------------
+ Name - clockHandler
+ Purpose - Handles the main functionality of the clock handler. After each 
+           time slice (of 20ms), clockHandler checks if the currently running
+           process has exceeded its allotted 80ms. If yes, call dispatcher. If no,
+           do nothing.
+ Parameters - none
+ Returns - nothing
+ Side Effects - none
+ ----------------------------------------------------------------------- */
+void clockHandler(int dev, void *arg) {
+    
+    int procTimeUsed = getCurrentTime() - Current->procStartTime;
+    
+    if (procTimeUsed >= MAXTIMESLOT){
+        // FIXME!!! Do I need to add current back to the readyList? I think YES. FIXME!!!
+        dispatcher();
+    }
+} /* clockHandler */
+
+/* ------------------------------------------------------------------------
+ Name - getCurrentTime
+ Purpose - Returns the time in milliseconds since USLOSS started running
+ Parameters - none
+ Returns - int - Time in milliseconds since USLOSS started running.
+ Side Effects - none
+ ----------------------------------------------------------------------- */
+int getCurrentTime() {
+    int status;
+    if (USLOSS_DeviceInput(USLOSS_CLOCK_INT, 0, &status) == USLOSS_DEV_INVALID) {
+        USLOSS_Console("ERROR: getCurrentTime(): Encountered error fetching current time. Halting.\n");
+        USLOSS_Halt(1);
+    }
+    return status/1000;
+} /* getCurrentTime */
+
+/* ------------------------------------------------------------------------
+ Name - illegalArgumentHandler
+ Purpose - Basically only here to avoid warnings about uninitialized values.
+         - Required by USLOSS.
+         - May have to alter this method later. Check Piazza for updates.
+ Parameters - none
+ Returns - nothing
+ Side Effects - none
+ ----------------------------------------------------------------------- */
+void illegalArgumentHandler(int dev, void *arg) {
+    if (DEBUG && debugflag) {
+        USLOSS_Console("illegalArgumentHandler(): called\n");
+    }
+} /* illegalArgumentHandler */
