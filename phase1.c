@@ -656,9 +656,7 @@ void quit(int status) {
         }
     }
     
-    
     int currPID = Current->pid;
-    
     
     // --- If Quitting process is a child and has its own quitChildren
     if (Current->parentProcPtr != NULL && Current->quitChildPtr != NULL) {
@@ -675,7 +673,6 @@ void quit(int status) {
         addToQuitChildList(Current->parentProcPtr);
         removeFromChildList(Current->parentProcPtr);
         //removeFromChildList(Current);
-        
     }
     
     // --- Else If Quitting Process is a child and not a parent
