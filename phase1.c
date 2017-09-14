@@ -45,6 +45,7 @@ void removeFromChildList(struct procStruct *);
 void clockHandler(int dev, void *arg);
 void illegalArgumentHandler(int dev, void *arg);
 int getCurrentTime();
+void addToZapList(procPtr);
 
 /* -------------------------- Structs ------------------------------------- */
 
@@ -147,7 +148,7 @@ void initializeProcessTable() {
         procTable[i].quitChildPtr = NULL;
         procTable[i].quitSiblingPtr = NULL;
         procTable[i].whoZappedMePtr = NULL;
-        procTable[i].nextWhoZappedMePrt = NULL;
+        procTable[i].whoZappedMeSiblingPtr = NULL;
         procTable[i].name[0] = '\0';     /* process's name */
         procTable[i].startArg[0] = '\0';  /* args passed to process */
         procTable[i].pid = -1;               /* process id */
@@ -180,7 +181,7 @@ void nullifyProcess(int pidToNullify) {
     procTable[i].quitChildPtr = NULL;
     procTable[i].quitSiblingPtr = NULL;
     procTable[i].whoZappedMePtr = NULL;
-    procTable[i].nextWhoZappedMePrt = NULL;
+    procTable[i].whoZappedMeSiblingPtr = NULL;
     procTable[i].name[0] = '\0';     /* process's name */
     procTable[i].startArg[0] = '\0';  /* args passed to process */
     procTable[i].pid = -1;               /* process id */
@@ -218,6 +219,8 @@ void dumpProcesses() {
     for (int i = 0; i < MAXPROC; i++) {
         printf("%10s%20hi%20d%20d\n", procTable[i].name, procTable[i].pid, procTable[i].status, procTable[i].priority);
     }
+    printf("------------------------------------------------------------------------\n");
+
 } /* dumpProcesses */
 
 /* ------------------------------------------------------------------------
@@ -228,15 +231,15 @@ void dumpProcesses() {
  Side Effects - none
  ----------------------------------------------------------------------- */
 void dumpReadyList() {
-    printf("%10s %15s\n", "NAME", "PRIORITY");
-    printf("----------------------------\n");
+    printf("%10s %15s%15s\n", "NAME", "PRIORITY", "PID");
+    printf("-------------------------------------------\n");
     
     procStruct * curr = ReadyList;
     while (curr != NULL) {
-        printf("%10s %15d\n", curr->name, curr->priority);
+        printf("%10s %15d %15d\n", curr->name, curr->priority, curr->pid);
         curr = curr->nextProcPtr;
     }
-    printf("----------------------------\n");
+    printf("-------------------------------------------\n");
 } /* dumpreadyList */
 
 /* ------------------------------------------------------------------------
@@ -346,7 +349,7 @@ int fork1(char *name, int (*startFunc)(char *), char *arg, int stacksize, int pr
     
     // test if in kernel mode, halt if in user mode
     if (!isKernel()) {
-        USLOSS_Console("ERROR: fork1(): Process %s - fork1() called in User Mode. Halting.", name);
+        USLOSS_Console("fork1(): called while in user mode, by process %d. Halting...\n", Current->pid);
         USLOSS_Halt(1);
     }
     
@@ -590,7 +593,7 @@ int join(int *status) {
     // A child has quit and reactivated its parent
     procPtr childThatQuit = Current->quitChildPtr;
     
-    if (DEBUG && debugflag) {
+    if (DEBUG && debugflag) {           // HELP ME: I caused a merge conflict.
         USLOSS_Console("join(): Child %s has status of quit.\n", childThatQuit->name);
         dumpReadyList();
     }
@@ -630,7 +633,7 @@ void quit(int status) {
     
     // test if in kernel mode, halt if in user mode
     if (!isKernel()) {
-        USLOSS_Console("ERROR: quit(): Process %s - quit() called in User Mode. Halting.", Current->name);
+        USLOSS_Console("quit(): called while in user mode, by process 3. Halting...\n", Current->pid);
         USLOSS_Halt(1);
     }
     
@@ -643,7 +646,7 @@ void quit(int status) {
     // --- Ensure that the process does not have any running children
         // --- If this happens, print an error message and USLOSS_Halt(1)
     if (Current->childProcPtr != NULL) {
-        USLOSS_Console("ERROR: quit(): Process %s - Process called quit with active children.", Current->name);
+        USLOSS_Console("quit(): process %d, '%s', has active children. Halting...\n", Current->pid, Current->name);
         USLOSS_Halt(1);
     }
     
@@ -651,15 +654,19 @@ void quit(int status) {
     Current->quitStatus = status;
     Current->status = QUIT;
     
-    // --- If a process zapped this process (multiple?) if (isZapped())
-    // --- Unblock that process, change status the READY and add to readyList.
+    // --- If one or more processes zapped this process (isZapped())
+    // --- Unblock those process, change status the READY and add to readyList.
     if (isZapped()) {
         procPtr zapper = Current->whoZappedMePtr;
         while (zapper != NULL) {
             zapper->status = READY;
             pushToReadyList(zapper);
-            zapper = zapper->nextWhoZappedMePrt;
+            zapper = zapper->whoZappedMeSiblingPtr;
         }
+    }
+
+    if (DEBUG && debugflag) {
+        dumpReadyList();
     }
     
     int currPID = Current->pid;
@@ -865,11 +872,44 @@ int zap(int pid) {
     
     // If Current tries to zap itself
     if (Current->pid == pid) {
-        USLOSS_Console("ERROR: zap(): Process %s - process tried to call zap on itself. Halting.", Current->name);
+        USLOSS_Console("zap(): process %d tried to zap itself.  Halting...\n", Current->pid);
         USLOSS_Halt(1);
     }
     
-    return -1;
+    procPtr procToZap = &procTable[pid % MAXPROC];
+    procToZap->zapped = 1;
+    addToZapList(procToZap);
+    
+    Current->status = BLOCKED_ON_ZAP;
+    
+    dispatcher();           // HELP ME! How do we make this stall?
+    
+    if (isZapped()) {
+        return -1;
+    }
+    
+    // The zapped process has called quit and reactivated this one. This one was not zapped.
+    return 0;
+}
+
+///////////// Add to zap list ////////////////////
+void addToZapList(procPtr procToZap) {
+    if (procToZap->whoZappedMePtr == NULL) {
+        procToZap->whoZappedMePtr = Current;
+        return;
+    }
+    
+    procPtr ptr = procToZap->whoZappedMePtr;
+    while (ptr->whoZappedMeSiblingPtr != NULL) {
+        ptr = ptr->whoZappedMeSiblingPtr;
+    }
+    ptr->whoZappedMeSiblingPtr = Current;
+    
+//    procPtr temp = procToZap->whoZappedMePtr;
+//    procToZap->whoZappedMePtr = Current;
+//    procToZap->whoZappedMePtr->whoZappedMeSiblingPtr = temp;
+//    
+    return;
 }
 
 /* ------------------------------------------------------------------------
@@ -916,11 +956,11 @@ static void checkDeadlock() {
     
     // Should be only the sentinel. If not, there is an error
     if (numProcs > 1) {
-        USLOSS_Console("ERROR: checkDeadlock(): %d processes in the process table remaining. Halting.\n", numProcs);
+        USLOSS_Console("checkDeadlock(): numProc = %d. Only Sentinel should be left. Halting...\n", numProcs);
         USLOSS_Halt(1);
     }
     
-    USLOSS_Console("All processes complete.\n");
+    USLOSS_Console("All processes completed.\n");
     USLOSS_Halt(0);
     
 } /* checkDeadlock */
@@ -1036,13 +1076,7 @@ int isZapped(void) {
  Side Effects - none
  ----------------------------------------------------------------------- */
 void clockHandler(int dev, void *arg) {
-    
-    int procTimeUsed = getCurrentTime() - Current->procStartTime;
-    
-    if (procTimeUsed >= MAXTIMESLOT){
-        // FIXME!!! Do I need to add current back to the readyList? I think YES. FIXME!!!
-        dispatcher();
-    }
+    timeSlice();
 } /* clockHandler */
 
 /* ------------------------------------------------------------------------
@@ -1075,3 +1109,55 @@ void illegalArgumentHandler(int dev, void *arg) {
         USLOSS_Console("illegalArgumentHandler(): called\n");
     }
 } /* illegalArgumentHandler */
+
+int readCurStartTime() {
+    return Current->procStartTime;
+}
+
+void timeSlice() {
+    int procTimeUsed = getCurrentTime() - Current->procStartTime;
+    
+    if (procTimeUsed >= MAXTIMESLOT){
+        // FIXME!!! Do I need to add current back to the readyList? I think YES. FIXME!!!
+        dispatcher();
+    }
+}
+
+int blockMe(int newStatus) {
+    
+    if (newStatus <= 10) {
+        USLOSS_Console("ERROR: blockMe(): newStatus must be greater than 10.");
+        USLOSS_Halt(1);
+    }
+    
+    // If process was zapped while blocked, return -1 HELP ME!
+    
+    // Otherwise, return 0
+    Current->status = BLOCKED_ON_ME;
+    
+    return 0;
+}
+
+int unblockProc(int pid) {
+    procPtr procToUnblock = &procTable[pid % MAXPROC];
+    
+    if ((procToUnblock->status == NO_PROCESS_ASSIGNED) || (procToUnblock->status <= 10) || procToUnblock->pid == Current->pid) {
+        if (DEBUG && debugflag) {
+            USLOSS_Console("unblockProck(): Not able to unblock process %d.", pid);
+        }
+        return -2;
+    }
+    
+    if (isZapped())  {
+        if (DEBUG && debugflag) {
+            USLOSS_Console("unblockProck(): Process %d was zapped. Cannot unBlock process %d.", Current->pid, pid);
+        }
+        return -1;
+    }
+    
+    procToUnblock->status = READY;
+    pushToReadyList(procToUnblock);
+    dispatcher();
+    return 0;
+}
+

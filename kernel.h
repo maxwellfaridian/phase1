@@ -14,7 +14,7 @@ struct procStruct {
     procPtr         quitChildPtr;
     procPtr         quitSiblingPtr;
     procPtr         whoZappedMePtr;
-    procPtr         nextWhoZappedMePrt;
+    procPtr         whoZappedMeSiblingPtr;
     char            name[MAXNAME];     /* process's name */
     char            startArg[MAXARG];  /* args passed to process */
     USLOSS_Context  state;             /* current context for process */
@@ -45,14 +45,18 @@ union psrValues {
 
 /* Some useful constants.  Add more as needed... */
 #define NO_CURRENT_PROCESS NULL
-#define NO_PROCESS_ASSIGNED 101
-#define READY 102
-#define BLOCKED 103
-#define QUIT 104
-#define BLOCKED_ON_JOIN 105
-#define ACTIVE 106
-#define MINPRIORITY 5
-#define MAXPRIORITY 1
-#define SENTINELPID 1
-#define SENTINELPRIORITY (MINPRIORITY + 1)
+#define NO_PROCESS_ASSIGNED     -1
+#define ACTIVE                   1
+#define READY                    2
+#define QUIT                     3
+
+#define BLOCKED_ON_ZAP           8
+#define BLOCKED_ON_JOIN          9
+#define BLOCKED                 10
+#define BLOCKED_ON_ME           11
+
+#define MINPRIORITY              5
+#define MAXPRIORITY              1
+#define SENTINELPID              1
+#define SENTINELPRIORITY         (MINPRIORITY + 1)
 
