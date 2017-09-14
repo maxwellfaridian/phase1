@@ -595,6 +595,12 @@ int join(int *status) {
         dumpReadyList();
     }
     
+    //Remove quitChild from child quit list and grab it's PID
+    procPtr childToQuit = Current->quitChildPtr;
+    quitChildPID = childToQuit->pid;
+    *status = childToQuit->quitStatus;
+    Current->quitChildPtr = childToQuit->quitSiblingPtr;
+    
     quitChildPID = childThatQuit->pid;
     *status = childThatQuit->quitStatus;
     // Remove child from parent's quitlist
