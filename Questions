@@ -5,13 +5,4 @@ TODO:   checkDeadlock()
         
 
 QUESTION:
-            Does clock handler push current back to readylist?
-            Does readtime need to be written? (phase1.h, not spec)
-                    ---->>>> Just write it.
-
-            blockMe functionality. When do we return -1? example.
-                    ---->>>> Really no different. Just put a call to isZapped at the end. If yes, return -1.
-                    ---->>>> Will call dispatcher within this function.
-
-            Any other error codes need matching?
-                    ---->>>> No. All the error cases in provided testcases should match. Don't worry about others'
+        

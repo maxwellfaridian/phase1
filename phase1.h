@@ -31,12 +31,6 @@
 
 #define MAXSYSCALLS  50
 
-/*
- * Maximum time a process can run before calling the dispatcher.
- */
-
-#define MAXTIMESLOT  80
-
 /* 
  * Function prototypes for this phase.
  */

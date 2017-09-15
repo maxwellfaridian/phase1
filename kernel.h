@@ -28,6 +28,7 @@ struct procStruct {
     int             procStartTime;
     int             zapped;
     int             quitStatus;
+    int             totalTime;
 };
 
 struct psrBits {
@@ -44,7 +45,7 @@ union psrValues {
 };
 
 /* Some useful constants.  Add more as needed... */
-#define NO_CURRENT_PROCESS NULL
+#define NO_CURRENT_PROCESS       NULL
 #define NO_PROCESS_ASSIGNED     -1
 #define ACTIVE                   1
 #define READY                    2

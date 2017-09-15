@@ -258,17 +258,157 @@ echo ""
 echo ""
 echo ""
 
-# echo "Starting TEST 23"
-# make test23
-# echo ""
-# ./test23 > ourResults/ourtest23.txt
-# diff ourResults/ourtest23.txt testResults/test23.txt &> diffResults/test23diff.txt
-# echo "!!! CHECK DIFF !!!"
-# echo "Finishing TEST 23"
-# echo ""
-# echo ""
-# echo ""
+echo "Starting TEST 23"
+make test23
+echo ""
+./test23 > ourResults/ourtest23.txt
+diff ourResults/ourtest23.txt testResults/test23.txt &> diffResults/test23diff.txt
+echo "!!! CHECK DIFF !!!"
+echo "Finishing TEST 23"
+echo ""
+echo ""
+echo ""
 
+echo "Starting TEST 24"
+make test24
+echo ""
+./test24 > ourResults/ourtest24.txt
+diff ourResults/ourtest24.txt testResults/test24.txt &> diffResults/test24diff.txt
+echo "!!! CHECK DIFF !!!"
+echo "Finishing TEST 24"
+echo ""
+echo ""
+echo ""
 
+echo "Starting TEST 25"
+make test25
+echo ""
+./test25 > ourResults/ourtest25.txt
+diff ourResults/ourtest25.txt testResults/test25.txt &> diffResults/test25diff.txt
+diff ourResults/ourtest25.txt testResults/test25.txt
+echo "Finishing TEST 25"
+echo ""
+echo ""
+echo ""
 
+echo "Starting TEST 26"
+make test26
+echo ""
+./test26 > ourResults/ourtest26.txt
+diff ourResults/ourtest26.txt testResults/test26.txt &> diffResults/test26diff.txt
+diff ourResults/ourtest26.txt testResults/test26.txt
+echo "Finishing TEST 26"
+echo ""
+echo ""
+echo ""
+
+echo "Starting TEST 27"
+make test27
+echo ""
+./test27 > ourResults/ourtest27.txt
+diff ourResults/ourtest27.txt testResults/test27.txt &> diffResults/test27diff.txt
+diff ourResults/ourtest27.txt testResults/test27.txt
+echo "Finishing TEST 27"
+echo ""
+echo ""
+echo ""
+
+echo "Starting TEST 28"
+make test28
+echo ""
+./test28 > ourResults/ourtest28.txt
+diff ourResults/ourtest28.txt testResults/test28.txt &> diffResults/test28diff.txt
+diff ourResults/ourtest28.txt testResults/test28.txt
+echo "Finishing TEST 28"
+echo ""
+echo ""
+echo ""
+
+echo "Starting TEST 29"
+make test29
+echo ""
+./test29 > ourResults/ourtest29.txt
+diff ourResults/ourtest29.txt testResults/test29.txt &> diffResults/test29diff.txt
+diff ourResults/ourtest29.txt testResults/test29.txt
+echo "Finishing TEST 29"
+echo ""
+echo ""
+echo ""
+
+echo "Starting TEST 30"
+make test30
+echo ""
+./test30 > ourResults/ourtest30.txt
+diff ourResults/ourtest30.txt testResults/test30.txt &> diffResults/test30diff.txt
+diff ourResults/ourtest30.txt testResults/test30.txt
+echo "Finishing TEST 30"
+echo ""
+echo ""
+echo ""
+
+echo "Starting TEST 31"
+make test31
+echo ""
+./test31 > ourResults/ourtest31.txt
+diff ourResults/ourtest31.txt testResults/test31.txt &> diffResults/test31diff.txt
+diff ourResults/ourtest31.txt testResults/test31.txt
+echo "Finishing TEST 31"
+echo ""
+echo ""
+echo ""
+
+echo "Starting TEST 32"
+make test32
+echo ""
+./test32 > ourResults/ourtest32.txt
+diff ourResults/ourtest32.txt testResults/test32.txt &> diffResults/test32diff.txt
+diff ourResults/ourtest32.txt testResults/test32.txt
+echo "Finishing TEST 32"
+echo ""
+echo ""
+echo ""
+
+echo "Starting TEST 33"
+make test33
+echo ""
+./test33 > ourResults/ourtest33.txt
+diff ourResults/ourtest33.txt testResults/test33.txt &> diffResults/test33diff.txt
+diff ourResults/ourtest33.txt testResults/test33.txt
+echo "Finishing TEST 33"
+echo ""
+echo ""
+echo ""
+
+echo "Starting TEST 34"
+make test34
+echo ""
+./test34 > ourResults/ourtest34.txt
+diff ourResults/ourtest34.txt testResults/test34.txt &> diffResults/test34diff.txt
+diff ourResults/ourtest34.txt testResults/test34.txt
+echo "Finishing TEST 34"
+echo ""
+echo ""
+echo ""
+
+echo "Starting TEST 35"
+make test35
+echo ""
+./test35 > ourResults/ourtest35.txt
+diff ourResults/ourtest35.txt testResults/test35.txt &> diffResults/test35diff.txt
+diff ourResults/ourtest35.txt testResults/test35.txt
+echo "Finishing TEST 35"
+echo ""
+echo ""
+echo ""
+
+echo "Starting TEST 36"
+make test36
+echo ""
+./test36 > ourResults/ourtest36.txt
+diff ourResults/ourtest36.txt testResults/test36.txt &> diffResults/test36diff.txt
+diff ourResults/ourtest36.txt testResults/test36.txt
+echo "Finishing TEST 36"
+echo ""
+echo ""
+echo ""
 
